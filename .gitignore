@@ -1,2 +1,14 @@
-# Envs
+# Venvs
+venv/
+.venv/
+
+# Envs vars
+.env
 .env.local
+.env.*.local
+
+# Python
+__pycache__/
+
+# macOS
+.DS_Store
