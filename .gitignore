@@ -17,3 +17,7 @@ __pycache__/
 *.pdf
 *.html
 *.xml
+*.json
+*.csv
+*.md
+!README.md
