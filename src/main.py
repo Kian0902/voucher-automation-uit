@@ -89,8 +89,22 @@ def identify_problems(state: AgentState) -> AgentState:
 
     messages = [SystemMessage(content=SYSTEM_PROMPT_IDENTIFY)] + list(state["messages"])
     response: InvoiceProblems = llm_identifier.invoke(messages)  # type: ignore
-
     return {"messages": [], "problems": response, "labeled_problems": None}
+
+
+
+def router_1(state: AgentState):
+    """
+    Routing Function
+    """
+
+    # If not problems were identified
+    if state["problems"] is None or len(state["problems"].problems) == 0:
+        print("Could not identify any problems...")
+        return "exit"
+    else:
+        print("Entering Classification Stage")
+        return "continue"
 
 
 
@@ -106,16 +120,12 @@ def classify_problems(state: AgentState) -> AgentState:
         return {"messages": [], "labeled_problems": None} # type: ignore
 
     # Exclude the identifier thinking
-    problems_json = json.dumps(
-        [p.model_dump() for p in identified.problems], indent=2, ensure_ascii=False
-    )
-
+    problems_json = json.dumps([p.model_dump() for p in identified.problems], indent=2, ensure_ascii=False)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT_CLASSIFY),
         HumanMessage(content=problems_json)
     ]
     response: LabeledProblems = llm_classifier.invoke(messages) # type: ignore
-    
     return {"messages": [], "labeled_problems": response} # type: ignore
 
 
@@ -125,11 +135,20 @@ graph = StateGraph(AgentState)
 graph.add_node("identify_problems", identify_problems)
 graph.add_node("classify_problems", classify_problems)
 
-graph.set_entry_point("identify_problems")
+# graph.add_edge("identify_problems", "classify_problems")
 
-graph.add_edge("identify_problems", "classify_problems")
+graph.add_conditional_edges(
+    source="identify_problems",
+    path=router_1,
+    path_map={
+        "continue": "classify_problems",
+        "exit": END
+    }
+)
+
 graph.add_edge("classify_problems", END)
 
+graph.set_entry_point("identify_problems")
 agent = graph.compile()
 
 
@@ -139,7 +158,7 @@ agent = graph.compile()
 
 def run_system():
     data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
-    name = "Kreditnota 1379243.xml"
+    name = "Faktura 8111457.xml"
 
     # for name in data_dir.rglob("*.xml"):
 
