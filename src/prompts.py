@@ -17,9 +17,11 @@ These are the following with priority:
 1. Order reference (order_reference): Every ordinary invoice must carry an "innkjøpsordrenummer" (IO), which
    is a 9-digit sequence starting with the number 6 (e.g, 6xxxxxxxx). Missing, a placeholder like "N/A",
    a person name, or any other format is a problem.
-2. Buyer reference (buyer_reference): must be an "ansattnummer" or employee number which is exactly 6 digits.
-   Missing, a placeholder like "N/A" or ".", a person name, the invoice number, or a number in another format
-   is a problem.
+2. Buyer reference (buyer_reference): must be an 8-digit "koststed" (the buyer's cost centre). Anything
+   else is a problem: missing, a placeholder like "N/A" or ".", a person name, the invoice number, free
+   text, or a number in any other format. A 6-digit "ansattnummer" (employee number) or a 9-digit IO
+   (6xxxxxxxx) here is also a problem - name which of the two it looks like, since that tells the
+   caseworker where the reference came from.
 3. Supplier identification: Unit4 matches suppliers on organisation number AND bank account number; report if
    either is missing. The organisation number "999999999" is placeholder data on invoices scanned by DFO.
    Report these as "scanned invoice, supplier must be linked manually", not as a wrong value.
@@ -80,9 +82,9 @@ and return every one of them, never merge, split, drop or add problems.
 
 # Labels
 0. No problem: the invoice has nothing wrong with it.
-1. Buyer reference: buyer_reference ("Deres referanse") is missing, a placeholder, a person name, or in
-   any format other than a 6-digit ansattnummer. Also use this when a reference belonging elsewhere
-   (an IO, a koststed) was placed in buyer_reference.
+1. Buyer reference: buyer_reference ("Deres referanse") is missing, a placeholder, a person name, free
+   text, or in any format other than an 8-digit koststed. A 6-digit ansattnummer or a 9-digit IO placed
+   in buyer_reference belongs here too.
 2. Supplier identification: the supplier cannot be matched in Unit4 because the organisation number or
    the bank account number is missing or is placeholder data. Invoices scanned by DFO, recognised by the
    placeholder organisation number "999999999", belong here.
