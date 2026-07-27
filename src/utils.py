@@ -20,10 +20,10 @@ def print_invoice_problems(result, source_file=None):
 
     Example:
         Faktura 209384.xml
-        - Class 1: buyer_reference is a person name
+        - [Class 1]: buyer_reference is a person name
             - Field: buyer_reference
-            - Value: Leif Martinsen
-            - Why:   A person name is not an ansattnummer.
+            - Value: <person name>
+            - Why:   A person name is not an 8-digit koststed.
     """
 
     if source_file is not None:
@@ -35,10 +35,11 @@ def print_invoice_problems(result, source_file=None):
         return
 
     for problem in labeled.problems:
-        print(f"- Class {problem.label}: {problem.problem}")
+        print(f"- [Class {problem.label}]: {problem.problem}")
         print(f"    - Field: {problem.field}")
         print(f"    - Value: {problem.value}")
         print(f"    - Why:   {problem.why}")
+        print("\n")
 
 
 def print_code_hierarchy(codes, root_label="UiT"):
