@@ -1,64 +1,28 @@
-
-import json
 import os
+import json
 from pathlib import Path
-
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, START, END, MessagesState
+
+from typing import TypedDict, Annotated, Sequence
 from pydantic import BaseModel, Field, SecretStr
 
+from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+from langchain_openai import ChatOpenAI
+
+from prompts import INVOICE_PROBLEM_IDENTIFICATION, INVOICE_PROBLEM_CLASSIFICATION
 from xml_processor import parse_invoice_xml
+
+from utils import save_graph_png, print_invoice_problems
 
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
 
 
-SYSTEM_PROMPT = """\
-# Role
+SYSTEM_PROMPT_IDENTIFY = INVOICE_PROBLEM_IDENTIFICATION
+SYSTEM_PROMPT_CLASSIFY = INVOICE_PROBLEM_CLASSIFICATION
 
-You assist the finance department at UiT with incoming invoices that
-failed automated booking.
-
-# Task
-
-You receive the extracted data of one invoice as JSON. Identify and
-articulate the problem(s) with the invoice so a caseworker instantly
-understands what is wrong.
-
-# What to look at
-
-Only the problems that actually stop an invoice in UiT's ERP (Unit4),
-most important first:
-
-1. Supplier identification: supplier organisation number is missing or
-   is the placeholder "999999999", and/or the bank account number is
-   missing. Unit4 matches suppliers on organisation number AND account.
-2. Buyer reference ("Deres referanse" / buyer_reference): missing, a
-   placeholder like "N/A" or ".", or a person name instead of a valid
-   reference code.
-3. Invoice number missing.
-4. KID missing.
-
-# What to ignore
-
-Everything that does not stop an invoice, including:
-
-- Dates of any kind (issue date, due date, delivery date, periods)
-- Amounts and totals. A payable amount of 0.00 is legitimate (prepaid
-  or fully discounted) - never report it
-- Tax details, delivery information, attachments, contact details
-- Anything else not listed under "What to look at"
-
-# Rules
-
-- Do not suggest fixes
-- Do not invent values that are not in the data
-- Duplicate detection and registry lookups are impossible from one
-  invoice alone - never claim an invoice is a duplicate or that a
-  supplier is unregistered
-"""
 
 
 class Problem(BaseModel):
@@ -72,71 +36,132 @@ class Problem(BaseModel):
     why: str = Field(description="One line on why this is a problem")
 
 
+# SCHEMA: Agent output format
 class InvoiceProblems(BaseModel):
     """
     The agent's full answer: every problem identified in one invoice.
     """
-
+    thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST.")
     problems: list[Problem] = Field(
         description="All identified problems. Empty when the invoice has none."
     )
 
 
-class AgentState(MessagesState):
-    """
-    Graph state: conversation messages in, structured problems out.
-    """
 
+# For the Classifier
+class LabeledProblem(Problem):
+    label: int = Field(description="The label number for the problem")
+
+class LabeledProblems(BaseModel):
+    thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST.")
+    problems: list[LabeledProblem] = Field(
+        description="Every problem received, now labeled. Empty when the invoice has none."
+    )
+
+
+# STATE: Whiteboard
+class AgentState(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
     problems: InvoiceProblems | None
+    labeled_problems: LabeledProblems | None
+
 
 
 llm = ChatOpenAI(
     model=os.environ["API_MODEL"],
     base_url=os.environ["API_URL"],
     api_key=SecretStr(os.environ["API_KEY"]),
+    temperature=0.1,
+    timeout=120,
+    #max_completion_tokens=3000,
 )
 
-# Structure the LLM's answer into the InvoiceProblems structure
-structured_llm = llm.with_structured_output(InvoiceProblems)
+llm_identifier = llm.with_structured_output(InvoiceProblems)
+llm_classifier = llm.with_structured_output(LabeledProblems)
 
 
-def llm_call(state: AgentState):
-    """Ask the LLM to identify the invoice's problems, structured."""
-
-    messages = [SystemMessage(content=SYSTEM_PROMPT)] + state["messages"]
-    response = structured_llm.invoke(messages)
-    return {"problems": response}
 
 
-# Build pipeline/workflow
-agent_builder = StateGraph(AgentState)
-agent_builder.add_node("llm_call", llm_call)
-agent_builder.add_edge(START, "llm_call")
-agent_builder.add_edge("llm_call", END)
+def identify_problems(state: AgentState) -> AgentState:
+    """
+    Ask the LLM to identify the invoice's problems, structured.
+    """
 
-# Compiling agent
-agent = agent_builder.compile()
+    messages = [SystemMessage(content=SYSTEM_PROMPT_IDENTIFY)] + list(state["messages"])
+    response: InvoiceProblems = llm_identifier.invoke(messages)  # type: ignore
+
+    return {"messages": [], "problems": response, "labeled_problems": None}
+
+
+
+def classify_problems(state: AgentState) -> AgentState:
+    """
+    Ask the LLM to classify the identified invoice's problems.
+    """
+
+    identified = state["problems"]
+
+    # If not problems were identified
+    if identified is None or len(identified.problems) == 0:
+        return {"messages": [], "labeled_problems": None} # type: ignore
+
+    # Exclude the identifier thinking
+    problems_json = json.dumps(
+        [p.model_dump() for p in identified.problems], indent=2, ensure_ascii=False
+    )
+
+    messages = [
+        SystemMessage(content=SYSTEM_PROMPT_CLASSIFY),
+        HumanMessage(content=problems_json)
+    ]
+    response: LabeledProblems = llm_classifier.invoke(messages) # type: ignore
+    
+    return {"messages": [], "labeled_problems": response} # type: ignore
+
+
+
+
+graph = StateGraph(AgentState)
+graph.add_node("identify_problems", identify_problems)
+graph.add_node("classify_problems", classify_problems)
+
+graph.set_entry_point("identify_problems")
+
+graph.add_edge("identify_problems", "classify_problems")
+graph.add_edge("classify_problems", END)
+
+agent = graph.compile()
+
+
+# save_graph_png(agent)
+
+
+
+def run_system():
+    data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
+    name = "Kreditnota 1379243.xml"
+
+    # for name in data_dir.rglob("*.xml"):
+
+    print("\n ===== START =====")
+    #data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
+    invoice = parse_invoice_xml(data_dir / name)
+    invoice_json = json.dumps(invoice, indent=2, ensure_ascii=False)
+    
+
+    initial_state: AgentState = {
+        "messages": [HumanMessage(content=invoice_json)],
+        "problems": None,
+        "labeled_problems": None
+    }
+
+    result = agent.invoke(initial_state)
+
+    print_invoice_problems(result=result)
+
+    print("\n ===== END =====")
+    print("\n\n\n\n")
 
 
 if __name__ == "__main__":
-    data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
-
-    invoice = parse_invoice_xml(data_dir / "Faktura 209384.xml")
-    invoice_json = json.dumps(invoice, indent=2, ensure_ascii=False)
-
-    result = agent.invoke(
-        AgentState(messages=[HumanMessage(content=invoice_json)], problems=None)
-    )
-
-    print(f"===== {invoice['source_file']} =====")
-    problems = result["problems"]
-    if len(problems.problems) == 0:
-        print("No problems identified.")
-    for problem in problems.problems:
-        print(f"- {problem.problem}")
-        print(f"    - Field: {problem.field}")
-        print(f"    - Value: {problem.value}")
-        print(f"    - Why:   {problem.why}")
-
-    # print("\n===== Extracted data =====")
-    print(invoice_json)
+    run_system()

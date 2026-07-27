@@ -1,4 +1,87 @@
+from langchain_core.runnables.graph import CurveStyle
 
+def save_graph_png(app, output_path="agent_graph.png"):
+    """
+    Render a compiled LangGraph graph as a PNG image file.
+    """
+
+    png_bytes = app.get_graph().draw_mermaid_png(curve_style=CurveStyle.BASIS)
+
+    with open(output_path, "wb") as png_file:
+        png_file.write(png_bytes)
+
+    return output_path
+
+
+
+def print_invoice_problems(result, source_file=None):
+    """
+    Print the labeled problems of one invoice, one block per problem.
+
+    Example:
+        Faktura 209384.xml
+        - Class 1: buyer_reference is a person name
+            - Field: buyer_reference
+            - Value: Leif Martinsen
+            - Why:   A person name is not an ansattnummer.
+    """
+
+    if source_file is not None:
+        print(f"\n{source_file}")
+
+    labeled = result["labeled_problems"]
+    if labeled is None:
+        print("No problems identified.")
+        return
+
+    for problem in labeled.problems:
+        print(f"- Class {problem.label}: {problem.problem}")
+        print(f"    - Field: {problem.field}")
+        print(f"    - Value: {problem.value}")
+        print(f"    - Why:   {problem.why}")
+
+
+def print_code_hierarchy(codes, root_label="UiT"):
+    """
+    Print a code dictionary as an ASCII tree, like a folder listing.
+
+    Args:
+        codes (dict): {code: {"short_name": str | None, "name": str,
+                      "parent": str | None}} - e.g. STEDKODER from
+                      stedkoder.py. Entries with parent None are top level.
+        root_label (str): Text for the root line. Defaults to "UiT".
+
+    Example:
+        UiT
+        ├── 2611 [ADM] Rektorat og universitetsledelse
+        │   ├── 261101 Universitetsledelsen
+        │   └── 261111 Rektors stab
+        └── 32 [NT-FAK] Fakultet for naturvitenskap og teknologi
+            └── 3214 [IFI] Institutt for informatikk
+    """
+
+    # Group every code under its parent (None = top level), sorted
+    children = {}
+    for code, info in codes.items():
+        children.setdefault(info["parent"], []).append(code)
+    for child_list in children.values():
+        child_list.sort()
+
+    def print_subtree(code, prefix, is_last):
+        info = codes[code]
+        short = f" [{info['short_name']}]" if info["short_name"] else ""
+        print(prefix + ("└── " if is_last else "├── ") + code + short + " " + info["name"])
+
+        # Children continue with a pipe if this branch continues below
+        child_prefix = prefix + ("    " if is_last else "│   ")
+        child_codes = children.get(code, [])
+        for index, child_code in enumerate(child_codes):
+            print_subtree(child_code, child_prefix, index == len(child_codes) - 1)
+
+    print(root_label)
+    top_codes = children.get(None, [])
+    for index, top_code in enumerate(top_codes):
+        print_subtree(top_code, "", index == len(top_codes) - 1)
 
 
 def _get_message(result):
