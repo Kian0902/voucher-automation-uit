@@ -59,17 +59,32 @@ def _header(root):
     Extract header level fields from file.
 
     Args:
-        root (Element): The root element "Invoice" of xml tree.
+        root (Element): The root element ("Invoice" or "CreditNote") of xml tree.
 
     Returns:
         dict: Header fields with corresponding values
     """
 
+    # Invoices use InvoiceTypeCode, credit notes use CreditNoteTypeCode
+    type_code = _text(root, "cbc:InvoiceTypeCode")
+    if type_code is None:
+        type_code = _text(root, "cbc:CreditNoteTypeCode")
+
+    # Suppliers sometimes put the actual reference in rhe free-text notes..
+    notes = []
+    for note_element in root.findall("cbc:Note", Name_Spaces):
+        raw_note = note_element.text
+        if raw_note is None:
+            raw_note = ""
+        stripped_note = raw_note.strip()
+        if stripped_note != "":
+            notes.append(stripped_note)
+
     result_headers = {
         "invoice_id": _text(root, "cbc:ID"),
         "issue_date": _text(root, "cbc:IssueDate"),
         "due_date": _text(root, "cbc:DueDate"),
-        "invoice_type_code": _text(root, "cbc:InvoiceTypeCode"),
+        "invoice_type_code": type_code,
         "currency": _text(root, "cbc:DocumentCurrencyCode"),
         "buyer_reference": _text(root, "cbc:BuyerReference"),
         "accounting_cost": _text(root, "cbc:AccountingCost"),
@@ -77,8 +92,12 @@ def _header(root):
         "sales_order_id": _text(root, "cac:OrderReference/cbc:SalesOrderID"),
         "contract_reference": _text(root, "cac:ContractDocumentReference/cbc:ID"),
         "originator_reference": _text(root, "cac:OriginatorDocumentReference/cbc:ID"),
+
+        # project reference can hold the UiT internal order (IO) number
+        "project_reference": _text(root, "cac:ProjectReference/cbc:ID"),
         "period_start": _text(root, "cac:InvoicePeriod/cbc:StartDate"),
-        "period_end": _text(root, "cac:InvoicePeriod/cbc:EndDate")
+        "period_end": _text(root, "cac:InvoicePeriod/cbc:EndDate"),
+        "notes": notes
     }
     return result_headers
 
@@ -106,13 +125,23 @@ def _party(root, acc_party: str):
     party = root.find(f"cac:{acc_party}/cac:Party", Name_Spaces)
     if party is None:
         return None
-    
+
+    # party can have several PartyTaxScheme blocks in any order (the MVA
+    # number and e.g. "Foretaksregisteret"). The MVA number is the one
+    # whose TaxScheme/ID is "VAT".
+    mva_nr = None
+    for tax_scheme in party.findall("cac:PartyTaxScheme", Name_Spaces):
+        scheme_id = _text(tax_scheme, "cac:TaxScheme/cbc:ID")
+        if scheme_id == "VAT":
+            mva_nr = _text(tax_scheme, "cbc:CompanyID")
+            break
+
     result_party = {
         "name": _text(party, "cac:PartyLegalEntity/cbc:RegistrationName"),
         "org_nr": _text(party, "cac:PartyLegalEntity/cbc:CompanyID"),
         "endpoint_id": _text(party, "cbc:EndpointID"),
         "party_id": _text(party, "cac:PartyIdentification/cbc:ID"),
-        "mva_nr": _text(party, "cac:PartyTaxScheme/cbc:CompanyID"),
+        "mva_nr": mva_nr,
         "contact_name": _text(party, "cac:Contact/cbc:Name"),
         "contact_email": _text(party, "cac:Contact/cbc:ElectronicMail"),
         "contact_phone": _text(party, "cac:Contact/cbc:Telephone")
@@ -225,8 +254,21 @@ def _line(line_el):
         -> "quantity": "1.00", "unit_code": "EA"
     """
 
-    # Quantity element is needed directly since unitCode is an attribute, not text
+    # Quantity element is needed directly since unitCode is an attribute, not text.
+    # Invoice lines use InvoicedQuantity, credit note lines use CreditedQuantity.
     qty = line_el.find("cbc:InvoicedQuantity", Name_Spaces)
+    if qty is None:
+        qty = line_el.find("cbc:CreditedQuantity", Name_Spaces)
+
+    # Read the quantity value from whichever quantity element was found
+    quantity = None
+    if qty is not None:
+        raw_quantity = qty.text
+        if raw_quantity is None:
+            raw_quantity = ""
+        stripped_quantity = raw_quantity.strip()
+        if stripped_quantity != "":
+            quantity = stripped_quantity
 
     allowances = []
     for ac in line_el.findall("cac:AllowanceCharge", Name_Spaces):
@@ -243,7 +285,11 @@ def _line(line_el):
         "line_id": _text(line_el, "cbc:ID"),
         "item_name": _text(line_el, "cac:Item/cbc:Name"),
         "description": _text(line_el, "cac:Item/cbc:Description"),
-        "quantity": _text(line_el, "cbc:InvoicedQuantity"),
+
+
+        # Suppliers sometimes put the actual reference in the free-text note lines
+        "note": _text(line_el, "cbc:Note"),
+        "quantity": quantity,
         "unit_code": qty.get("unitCode") if qty is not None else None,
         "unit_price": _text(line_el, "cac:Price/cbc:PriceAmount"),
         "amount": _text(line_el, "cbc:LineExtensionAmount"),
@@ -320,17 +366,48 @@ def _attachments(root):
 
 
 def parse_invoice_xml(path):
-    """Parse one UBL invoice XML file into a JSON-serializable dict."""
+    """
+    Parse one invoice or credit note XML file into a JSON-serializable dict.
+
+    Args:
+        path (str | Path): Path to the XML file.
+
+    Returns:
+        dict: Extracted document data. "document_type" tells whether it is
+              an "invoice" or a "credit_note" (amounts on a credit note
+              mean money back, not money owed).
+
+    Raises:
+        ValueError: If the root element is neither Invoice nor CreditNote.
+    """
+
     root = ET.parse(path).getroot()
+
+    # Invoice and CreditNote share same field structure, but line elements have different names
+    root_tag = root.tag.split("}")[-1]
+    if root_tag == "Invoice":
+        document_type = "invoice"
+        line_path = "cac:InvoiceLine"
+    elif root_tag == "CreditNote":
+        document_type = "credit_note"
+        line_path = "cac:CreditNoteLine"
+    else:
+        raise ValueError(f"Unknown document type '{root_tag}' in {path}")
+
+    lines = []
+    for line_element in root.findall(line_path, Name_Spaces):
+        lines.append(_line(line_element))
+
     return {
         "source_file": Path(path).name,
+        "document_type": document_type,
         **_header(root),
         "supplier": _party(root, "AccountingSupplierParty"),
         "customer": _party(root, "AccountingCustomerParty"),
         "delivery": _delivery(root),
         "payment": _payment(root),
         "totals": _totals(root),
-        "lines": [_line(el) for el in root.findall("cac:InvoiceLine", Name_Spaces)],
+        "lines": lines,
         "attachments": _attachments(root)
     }
 
