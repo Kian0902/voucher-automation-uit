@@ -6,6 +6,7 @@ import os
 import psycopg
 from pathlib import Path
 from dotenv import load_dotenv
+from eralchemy2 import render_er
 
 
 # Loading env var for db setup
@@ -20,6 +21,7 @@ TABLES = {
             id SERIAL PRIMARY KEY,
             name_original TEXT NOT NULL,
             name_key TEXT NOT NULL,
+            name_tokens TEXT[] NOT NULL,
             koststed TEXT,
             koststed_name TEXT
         )
@@ -41,7 +43,10 @@ TABLES = {
 }
 
 # making lookup indexes in addition to the main keys
-INDEXES = ["CREATE INDEX idx_persons_name_key ON persons (name_key)"]
+INDEXES = [
+    "CREATE INDEX idx_persons_name_key ON persons (name_key)",
+    "CREATE INDEX idx_persons_name_tokens ON persons USING GIN (name_tokens)"  # GIN index for fast token search
+]
 
 
 
@@ -120,6 +125,23 @@ def count_rows(connection, table_name: str) -> int:
     return result[0]
 
 
+
+
+def save_schema_diagram(database_url: str, output_path: Path) -> None:
+    """
+    Render the database schema as a PNG diagram.
+
+    Args:
+        database_url (str): The plain postgres DSN from .env.local.
+        output_path (Path): Where to write the PNG.
+    """
+
+    # eralchemy2 connects through SQLAlchemy, which reads a bare
+    # "postgresql://" as the psycopg2 driver... name our psycopg 3
+    sqlalchemy_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    render_er(sqlalchemy_url, str(output_path))
+
+
 if __name__ == "__main__":
     database_url = os.environ["DATABASE_URL"]
 
@@ -134,5 +156,9 @@ if __name__ == "__main__":
             assert row_count == 0, f"table {table_name} is not empty: {row_count} rows"
 
     print(f"Schema created: {', '.join(sorted(TABLES))}... self-check passed")
+
+    diagram_path = Path(__file__).resolve().parent.parent / "db_schema.png"
+    save_schema_diagram(database_url, diagram_path)
+    print(f"Schema diagram written to {diagram_path.name}")
 
 
