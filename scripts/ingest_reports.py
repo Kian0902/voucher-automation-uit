@@ -1,6 +1,8 @@
 
 
 
+
+
 import csv
 import os
 import re
@@ -11,12 +13,14 @@ import psycopg
 from dotenv import load_dotenv
 
 
+
 # pointing to src folder for importing normalize file
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root / "src"))
 load_dotenv(_repo_root / ".env.local")
 
 from normalize import normalize_name
+
 
 
 # same with th data csv lists...
@@ -131,6 +135,8 @@ def prepare_persons(data_rows: list) -> tuple:
     return insert_rows, skipped_count
 
 
+
+
 def prepare_ios(data_rows):
     """
     Builds the insert rows for the ios table from report B.
@@ -196,6 +202,7 @@ def prepare_koststeder(data_rows):
     return insert_rows, skipped_values
 
 
+
 def load_tables(connection, person_rows: list, io_rows: list, koststed_rows: list):
     """
     Empties the three tables and inserts the prepared rows.
@@ -223,6 +230,7 @@ def load_tables(connection, person_rows: list, io_rows: list, koststed_rows: lis
 
     # execute changes
     connection.commit()
+
 
 
 if __name__ == "__main__":

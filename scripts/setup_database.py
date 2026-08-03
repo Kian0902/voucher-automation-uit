@@ -136,8 +136,7 @@ def save_schema_diagram(database_url: str, output_path: Path) -> None:
         output_path (Path): Where to write the PNG.
     """
 
-    # eralchemy2 connects through SQLAlchemy, which reads a bare
-    # "postgresql://" as the psycopg2 driver... name our psycopg 3
+    # eralchemy2 connects through SQLAlchemy
     sqlalchemy_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
     render_er(sqlalchemy_url, str(output_path))
 
