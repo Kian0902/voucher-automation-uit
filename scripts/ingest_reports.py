@@ -65,33 +65,23 @@ def _cell(row: list, index: int) -> str | None:
     """
     Gets one cell value from a row, stripped.
 
-    Args:
-        row (list[str]): A data row from read_rows()
-        index (int): Column index
-
-    Returns:
-        str | None: The value, or None if the cell is blank
+    Args:  row (list[str]): A data row from read_rows()
+           index (int): Column index
+    Returns:  str | None: The value, or None if the cell is blank
     """
-
     raw_value = row[index]
     stripped_value = raw_value.strip()
     if stripped_value == "":
         return None
-        
     return stripped_value
 
 def _is_koststed(value: str):
     """
     Function checks if a value looks like a valid koststed (8 digits)...
 
-    Args:
-        value (str): The value to test
-
-    Returns:
-        bool: True if value is 8 digits
-
+    Args: value (str): The value to test
+    Returns: bool: True if value is 8 digits
     """
-
     return re.fullmatch(r"\d{8}", value) is not None
 
 
@@ -144,11 +134,9 @@ def prepare_ios(data_rows):
     Rows where the koststed is not 8 digits (the "Ukjent" ones) keep their IO but get
     koststed NULL and the koststed_unknown flag set instead.
 
-    Args:
-        data_rows (list[list[str]]): Data rows of report B.
+    Args:  data_rows (list[list[str]]): Data rows of report B.
 
-    Returns:
-        tuple[list[tuple], int]: (insert rows, how many IOs have unknown koststed)
+    Returns:  tuple[list[tuple], int]: (insert rows, how many IOs have unknown koststed)
     """
 
 
@@ -261,9 +249,10 @@ if __name__ == "__main__":
                 "persons": len(person_rows),
                 "ios": len(io_rows),
                 "koststeder": len(koststed_rows)}
+            
             for table_name, expected_count in expected_counts.items():
-                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-                stored_count = cursor.fetchone()[0]
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}") # type: ignore
+                stored_count = cursor.fetchone()[0] # type: ignore
                 assert stored_count == expected_count, \
                     f"{table_name}: {stored_count} stored, {expected_count} prepared"
 
@@ -281,13 +270,13 @@ if __name__ == "__main__":
             cursor.execute(
                 "SELECT koststed FROM ios WHERE io = %s",
                 (first_io[0],))
-            assert cursor.fetchone()[0] == first_io[1], "ios round-trip failed"
+            assert cursor.fetchone()[0] == first_io[1], "ios round-trip failed" # type: ignore
 
             first_koststed = koststed_rows[0]
             cursor.execute(
                 "SELECT description FROM koststeder WHERE koststed = %s",
                 (first_koststed[0],))
-            assert cursor.fetchone()[0] == first_koststed[1], "koststeder round-trip failed"
+            assert cursor.fetchone()[0] == first_koststed[1], "koststeder round-trip failed" # type: ignore
 
     print(f"persons:    {len(person_rows)} rows ({skipped_names} unusable name rows skipped)")
     print(f"ios:        {len(io_rows)} rows ({unknown_ios} with unknown koststed)")
