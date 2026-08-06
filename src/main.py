@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 from typing import TypedDict, Annotated, Sequence
 from pydantic import BaseModel, Field, SecretStr
+from openai import LengthFinishReasonError
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, END
@@ -17,7 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from prompts import INVOICE_PROBLEM_IDENTIFICATION, INVOICE_PROBLEM_CLASSIFICATION, INVOICE_PROBLEM_RESOLUTION
 from xml_processor import parse_invoice_xml
-from lookup_tools import TOOLS
+from lookup_tools import TOOLS, check_api_up
 
 from utils import save_graph_png, print_invoice_problems
 
@@ -85,7 +86,7 @@ class Resolution(BaseModel):
 class ResolveStep(BaseModel):
     thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST.")
     tool: str = Field(description="Tool to run next: lookup_io, lookup_person, lookup_koststed, or 'none' when done")
-    args: dict = Field(description="The tool's arguments with exact names, e.g. {\"io\": \"612345678\"}. Empty when tool is 'none'")
+    argument: str = Field(description="The single value to look up, e.g. \"612345678\". Empty when tool is 'none'")
     resolutions: list[Resolution] = Field(
         description="Only when tool is 'none': one resolution per problem received, same order."
     )
@@ -99,7 +100,7 @@ class AgentState(TypedDict):
     labeled_problems: LabeledProblems | None
     resolve_messages: list  #  resolver tool calls and results
     tool: str
-    args: dict
+    argument: str
     tool_calls_used: int
     resolutions: list[Resolution] | None
 
@@ -109,7 +110,7 @@ llm = ChatOpenAI(
     model=os.environ["API_MODEL"],
     base_url=os.environ["API_URL"],
     api_key=SecretStr(os.environ["API_KEY"]),
-    temperature=0.1,
+    temperature=0.0,
     timeout=120,
     max_completion_tokens=3000,
     max_retries=2,
@@ -131,12 +132,21 @@ def _invoke_with_stats(structured_llm, messages: list, step_name: str):
         step_name (str): Short name printed with the stats, e.g. "identify".
 
     Returns:
-        The parsed response object, or None when parsing failed.
+        The parsed response object or None when parsing fails...
     """
 
 
     start_time = time.monotonic()
-    result = structured_llm.invoke(messages)
+
+    # Report llm generations cut at max_completion_tokens as None.
+    try:
+        result = structured_llm.invoke(messages)
+    except LengthFinishReasonError:
+        elapsed_seconds = time.monotonic() - start_time
+        print(f"[{step_name}] {elapsed_seconds:.1f}s, generation hit the token cap and was cut off")
+        return None
+
+
     elapsed_seconds = time.monotonic() - start_time
 
     raw_message = result["raw"]
@@ -215,7 +225,7 @@ def resolve_problems(state: AgentState) -> AgentState:
 
     # Nothing to resolve when classification produced nothing
     if labeled is None:
-        return {"messages": [], "tool": "none", "args": {}, "resolutions": None} # type: ignore
+        return {"messages": [], "tool": "none", "argument": "", "resolutions": None} # type: ignore
 
     problems_json = json.dumps([p.model_dump() for p in labeled.problems], indent=2, ensure_ascii=False)
 
@@ -236,7 +246,7 @@ def resolve_problems(state: AgentState) -> AgentState:
 
     # A failed generation ends the loop instead of crashing it
     if response is None:
-        return {"messages": [], "tool": "none", "args": {}, "resolutions": None} # type: ignore
+        return {"messages": [], "tool": "none", "argument": "", "resolutions": None} # type: ignore
 
     # The resolutions only count when the resolver says it is done
     if response.tool == "none":
@@ -244,7 +254,7 @@ def resolve_problems(state: AgentState) -> AgentState:
     else:
         resolutions = None
 
-    return {"messages": [], "tool": response.tool, "args": response.args, "resolutions": resolutions} # type: ignore
+    return {"messages": [], "tool": response.tool, "argument": response.argument, "resolutions": resolutions} # type: ignore
 
 
 
@@ -273,11 +283,11 @@ def execute_tool(state: AgentState) -> AgentState:
     """
 
     tool_name = state["tool"]
-    args_text = json.dumps(state["args"], ensure_ascii=False)
+    argument = state["argument"]
 
     try:
         tool_function = TOOLS[tool_name]
-        result = tool_function(**state["args"])
+        result = tool_function(argument)
         result_text = json.dumps(result, indent=2, ensure_ascii=False)
 
         # short status for the terminal
@@ -290,12 +300,12 @@ def execute_tool(state: AgentState) -> AgentState:
     except Exception as error:
         # Bad tool name or argument names gives feedback instead of crashing...
         result_text = f"Tool call failed: {error}"
-        status_text = "failed"
+        status_text = f"failed ({error})"
 
     print(f"Tool {tool_name} answered: {status_text}")
 
     # Record the request and its result for the next resolver turn
-    request_message = AIMessage(content=f"[Tool call] {tool_name}({args_text})")
+    request_message = AIMessage(content=f"[Tool call] {tool_name}({argument})")
     result_message = ToolMessage(content=result_text, tool_call_id=tool_name)
     new_history = list(state["resolve_messages"]) + [request_message, result_message]
 
@@ -303,7 +313,7 @@ def execute_tool(state: AgentState) -> AgentState:
         "messages": [],
         "resolve_messages": new_history,
         "tool": "none",
-        "args": {},
+        "argument": "",
         "tool_calls_used": state["tool_calls_used"] + 1
     } # type: ignore
 
@@ -347,8 +357,12 @@ agent = graph.compile()
 
 
 def run_system():
+
+    # Error if api/app is not running
+    check_api_up()
+
     data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
-    name = "Faktura 1473715-3799.xml"
+    name = "Faktura 41481.xml"
 
     # for name in data_dir.rglob("*.xml"):
 
@@ -374,7 +388,7 @@ def run_system():
         "labeled_problems": None,
         "resolve_messages": [],
         "tool": "none",
-        "args": {},
+        "argument": "",
         "tool_calls_used": 0,
         "resolutions": None
     }

@@ -121,19 +121,20 @@ The extracted invoice data as JSON, then the list of classified problems. Result
 arrive as messages starting with "[Tool result]".
 
 # Tools
-Request one tool per reply by setting 'tool' to its name and 'args' to its arguments. While you are
-still looking things up, leave 'resolutions' empty. When you are done, set tool to "none" and fill
-'resolutions'.
+Request one tool per reply by setting 'tool' to its name and 'argument' to the single value to look
+up. While you are still looking things up, leave 'resolutions' empty. When you are done, set tool to
+"none" and fill 'resolutions'.
 
-- lookup_io: args {"io": "..."}. Checks an innkjopsordrenummer (IO) against the finance order report.
+- lookup_io: argument is the IO. Checks an innkjopsordrenummer (IO) against the finance order report.
   Status "found" gives the koststed the IO belongs to. "not_found" means the IO is unknown to Unit4.
   Report that as a finding: the order cannot be matched.
-- lookup_person: args {"name": "..."}. Looks up a person name and returns the person's koststed.
-  match_type "exact" is reliable. "partial" results are candidates only, so suggest them as
-  possibilities to confirm, never as the answer. When several persons match, use other invoice data
-  (a contact email, the delivery unit) to reason about which is likely, and say that this is
-  reasoning, not certainty.
-- lookup_koststed: args {"code": "..."}. Checks an 8-digit koststed against the authoritative catalog.
+- lookup_person: argument is the person name. Looks up a person name and returns the person's koststed.
+  match_type "exact" is reliable. For "partial" results, count the persons returned: exactly one
+  person may be used as the resolution, with 'why' saying it was a partial name match. Several
+  persons are candidates only, so present them as possibilities to confirm and leave the problem
+  unresolved. Use other invoice data (a contact email, the delivery unit) to reason about which
+  candidate is likely, and say that this is reasoning, not certainty.
+- lookup_koststed: argument is the 8-digit koststed. Checks it against the authoritative catalog.
   "not_in_catalog" does not prove the code is invalid, since it can be a retired code. Say exactly
   that when it happens.
 
