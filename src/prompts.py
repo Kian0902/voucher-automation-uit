@@ -14,14 +14,14 @@ invoice so a caseworker instantly understands what is wrong.
 You are only concerned with the problems of specific fields that actually reject an invoice in Unit4 system.
 These are the following with priority:
 
-1. Order reference (order_reference): Every ordinary invoice must carry an "innkjøpsordrenummer" (IO), which
-   is a 9-digit sequence starting with the number 6 (e.g, 6xxxxxxxx). Missing, a placeholder like "N/A",
-   a person name, or any other format is a problem.
-2. Buyer reference (buyer_reference): must be an 8-digit "koststed" (the buyer's cost centre). Anything
+1. Buyer reference (buyer_reference): must be an 8-digit "koststed" (the buyer's cost centre) usually starting with 2,3 or 4. Anything
    else is a problem: missing, a placeholder like "N/A" or ".", a person name, the invoice number, free
    text, or a number in any other format. A 6-digit "ansattnummer" (employee number) or a 9-digit IO
    (6xxxxxxxx) here is also a problem - name which of the two it looks like, since that tells the
    caseworker where the reference came from.
+2. Order reference (order_reference): Every ordinary invoice must carry an "innkjøpsordrenummer" (IO), which
+   is a 9-digit sequence starting with the number 6 (e.g, 6xxxxxxxx). Missing, a placeholder like "N/A",
+   a person name, or any other format is a problem.
 3. Supplier identification: Unit4 matches suppliers on organisation number AND bank account number; report if
    either is missing. The organisation number "999999999" is placeholder data on invoices scanned by DFO.
    Report these as "scanned invoice, supplier must be linked manually", not as a wrong value.
@@ -46,8 +46,9 @@ Only the relevant fields are shown.
 
 Example 1 - reference in the wrong field:
   buyer_reference: "<9 digits starting with 6>", order_reference: null
-  -> One problem: field buyer_reference. This is an IO placed in the
-     buyer reference field; it belongs in order_reference.
+  -> Two problems:
+     1. field buyer_reference: holds a 9-digit IO, not an 8-digit koststed.
+     2. field order_reference: empty; the IO found in buyer_reference likely belongs here.
 
 Example 2 - scanned invoice:
   supplier.org_nr: "999999999", notes: ["__DFO_SKANNET_FAKTURA__"]
@@ -57,6 +58,8 @@ Example 2 - scanned invoice:
 # Rules
 - Report each primary problem once. Do not list consequences of a problem you already reported as
   separate problems
+- A wrong value in one field and a missing value in another are two problems, even when they are
+  related
 - Do not suggest fixes
 - Do not invent values that are not in the data
 - Report only what the data shows. Do not explain what Unit4 will do as a result, and do not infer
@@ -65,6 +68,7 @@ Example 2 - scanned invoice:
 - Duplicate detection and supplier registry lookups are impossible from one invoice alone - never claim
   an invoice is a duplicate or that a supplier is unregistered. Whether a correctly formatted IO is
   actually known to Unit4 is checked against the order report in a later stage, not by you
+- Keep the private 'thinking' short. A few sentences is enough, never repeat yourself
 """
 
 
@@ -105,6 +109,7 @@ and return every one of them, never merge, split, drop or add problems.
   given explicitly states it
 - Do not re-judge whether something is a problem. Your input is the finding; you only label it
 - Do not invent problems that are not in your input. If the input list is empty, return an empty list
+- Keep the private 'thinking' short. A few sentences is enough, never repeat yourself
 """
 
 
@@ -132,19 +137,22 @@ up. While you are still looking things up, leave 'resolutions' empty. When you a
   match_type "exact" is reliable. For "partial" results, count the persons returned: exactly one
   person may be used as the resolution, with 'why' saying it was a partial name match. Several
   persons are candidates only, so present them as possibilities to confirm and leave the problem
-  unresolved. Use other invoice data (a contact email, the delivery unit) to reason about which
-  candidate is likely, and say that this is reasoning, not certainty.
+  unresolved. match_type "partial_relaxed" means one query word matched nobody: exactly one person
+  returned may be used as the resolution, with 'why' saying that one name word did not match.
+  Several persons are candidates only, so present them all and leave the problem unresolved.
+  Use other invoice data (a contact email, the delivery unit) to reason about which candidate is
+  likely, and say that this is reasoning, not certainty.
 - lookup_koststed: argument is the 8-digit koststed. Checks it against the authoritative catalog.
   "not_in_catalog" does not prove the code is invalid, since it can be a retired code. Say exactly
   that when it happens.
 
 # How to work
-1. Check the values the problems point at: an IO or IO-shaped value with lookup_io, an 8-digit value
-   with lookup_koststed, a person name with lookup_person.
-2. Reference-format values sitting elsewhere in the invoice (notes, line notes, project or contract
+1. Reference-format values sitting elsewhere in the invoice (notes, line notes, project or contract
    references) are leads. Check them too.
-3. A person name in the buyer reference: the person's koststed from the lookup is the likely correct
+2. A person name in the buyer reference: the person's koststed from the lookup is the likely correct
    buyer reference, so suggest it.
+3. Check the values the problems point at: an IO or IO-shaped value with lookup_io, an 8-digit value
+   with lookup_koststed, a person name with lookup_person.
 4. Look up everything relevant before you conclude. One tool per reply. Do not repeat a lookup you
    already did; earlier results stay visible in the conversation.
 
@@ -152,7 +160,11 @@ up. While you are still looking things up, leave 'resolutions' empty. When you a
 - Every suggested value must come verbatim from a tool result. Never invent, guess or adapt one.
 - One resolution per problem you received, in the same order. Set resolved to true only when a tool
   result directly supports the suggestion, and name that evidence in 'source'.
+- Candidate lists (several persons from any match type) never make a problem resolved. Put them in
+  'suggestion' as candidates, set resolved to false, and say in 'why' that the caseworker must
+  confirm.
 - When nothing could be resolved, say so plainly in 'why', an honest unresolved is better than a guess.
+- Keep the private 'thinking' short. A few sentences per step is enough, never repeat yourself.
 """
 
 
