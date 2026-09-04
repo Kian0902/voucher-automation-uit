@@ -13,6 +13,9 @@ __pycache__/
 # macOS
 .DS_Store
 
+# logs
+logs/
+
 # Files
 *.pdf
 *.html
@@ -21,3 +24,4 @@ __pycache__/
 *.csv
 *.md
 !README.md
+!demo/index.html

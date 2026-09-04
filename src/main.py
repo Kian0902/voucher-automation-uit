@@ -19,8 +19,9 @@ from langchain_openai import ChatOpenAI
 from prompts import INVOICE_PROBLEM_IDENTIFICATION, INVOICE_PROBLEM_CLASSIFICATION, INVOICE_PROBLEM_RESOLUTION
 from xml_processor import parse_invoice_xml
 from lookup_tools import TOOLS, check_api_up
+from run_log import RunLog
 
-from utils import save_graph_png, print_invoice_problems
+from utils import save_graph_png
 
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
@@ -32,6 +33,9 @@ SYSTEM_PROMPT_RESOLVE = INVOICE_PROBLEM_RESOLUTION
 
 # the resolver loop stops after this many lookups no matter what
 MAX_TOOL_CALLS = 8
+
+# the record of the current run
+run_log = RunLog()
 
 
 
@@ -51,7 +55,7 @@ class InvoiceProblems(BaseModel):
     """
     The agent's full answer: every problem identified in one invoice.
     """
-    thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST.")
+    thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST, briefly.")
     problems: list[Problem] = Field(
         description="All identified problems. Empty when the invoice has none."
     )
@@ -63,7 +67,7 @@ class LabeledProblem(Problem):
     label: int = Field(description="The label number for the problem")
 
 class LabeledProblems(BaseModel):
-    thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST.")
+    thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST, briefly.")
     problems: list[LabeledProblem] = Field(
         description="Every problem received, now labeled. Empty when the invoice has none."
     )
@@ -84,7 +88,7 @@ class Resolution(BaseModel):
 
 
 class ResolveStep(BaseModel):
-    thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST.")
+    thinking: str = Field(description="Your private step-by-step reasoning. Think here FIRST, briefly.")
     tool: str = Field(description="Tool to run next: lookup_io, lookup_person, lookup_koststed, or 'none' when done")
     argument: str = Field(description="The single value to look up, e.g. \"612345678\". Empty when tool is 'none'")
     resolutions: list[Resolution] = Field(
@@ -110,9 +114,9 @@ llm = ChatOpenAI(
     model=os.environ["API_MODEL"],
     base_url=os.environ["API_URL"],
     api_key=SecretStr(os.environ["API_KEY"]),
-    temperature=0.0,
+    temperature=0.1,         # 0.0 spirals, and frequency_penalty corrupted verbatim values (measured) - do not reintroduce either
     timeout=120,
-    max_completion_tokens=3000,
+    max_completion_tokens=7000,
     max_retries=2,
 )
 
@@ -124,12 +128,12 @@ llm_resolver = llm.with_structured_output(ResolveStep, include_raw=True)
 
 def _invoke_with_stats(structured_llm, messages: list, step_name: str):
     """
-    Invoke a structured LLM and print elapsed time and token usage.
+    Invoke a structured LLM and record the call in the run log.
 
     Args:
         structured_llm: A with_structured_output(..., include_raw=True) wrapper.
         messages (list): The messages to send.
-        step_name (str): Short name printed with the stats, e.g. "identify".
+        step_name (str): Log name of the calling step, e.g. "identify".
 
     Returns:
         The parsed response object or None when parsing fails...
@@ -141,9 +145,19 @@ def _invoke_with_stats(structured_llm, messages: list, step_name: str):
     # Report llm generations cut at max_completion_tokens as None.
     try:
         result = structured_llm.invoke(messages)
-    except LengthFinishReasonError:
+    except LengthFinishReasonError as error:
         elapsed_seconds = time.monotonic() - start_time
-        print(f"[{step_name}] {elapsed_seconds:.1f}s, generation hit the token cap and was cut off")
+
+        # the cut-off completion still reports its token usage
+        input_tokens = None
+        output_tokens = None
+        usage = getattr(error.completion, "usage", None)
+        if usage is not None:
+            input_tokens = usage.prompt_tokens
+            output_tokens = usage.completion_tokens
+
+        run_log.log_llm_step(step_name, elapsed_seconds, None, input_tokens, output_tokens,
+                             None, None, "generation hit the token cap and was cut off")
         return None
 
 
@@ -156,12 +170,30 @@ def _invoke_with_stats(structured_llm, messages: list, step_name: str):
     input_tokens = usage.get("input_tokens")
     output_tokens = usage.get("output_tokens")
 
-    print(f"[{step_name}] {elapsed_seconds:.1f}s, tokens in/out: {input_tokens}/{output_tokens}")
+    metadata = getattr(raw_message, "response_metadata", None)
+    if metadata is None:
+        metadata = {}
+    model_name = metadata.get("model_name")
 
-    if result["parsing_error"] is not None:
-        print(f"[{step_name}] parsing error: {result['parsing_error']}")
+    # Split the parsed output into the thinking and the real payload
+    parsed = result["parsed"]
+    thinking_text = None
+    output_text = None
+    if parsed is not None:
+        output_payload = parsed.model_dump()
+        if "thinking" in output_payload:
+            thinking_text = output_payload["thinking"]
+            del output_payload["thinking"]
+        output_text = json.dumps(output_payload, indent=2, ensure_ascii=False)
 
-    return result["parsed"]
+    parsing_error = result["parsing_error"]
+    if parsing_error is not None:
+        parsing_error = str(parsing_error)
+
+    run_log.log_llm_step(step_name, elapsed_seconds, model_name, input_tokens,
+                         output_tokens, output_text, thinking_text, parsing_error)
+
+    return parsed
 
 
 
@@ -171,7 +203,7 @@ def identify_problems(state: AgentState) -> AgentState:
     Ask the LLM to identify the invoice's problems, structured.
     """
 
-    print("Identifying problems...")
+    run_log.note("Identifying problems...")
     messages = [SystemMessage(content=SYSTEM_PROMPT_IDENTIFY)] + list(state["messages"])
     response = _invoke_with_stats(llm_identifier, messages, "identify")
     return {"messages": [], "problems": response, "labeled_problems": None} # type: ignore
@@ -185,10 +217,10 @@ def router_1(state: AgentState):
 
     # If no problems were identified
     if state["problems"] is None or len(state["problems"].problems) == 0:
-        print("Could not identify any problems...")
+        run_log.note("Could not identify any problems...")
         return "exit"
     else:
-        print("Entering Classification Stage")
+        run_log.note("Entering Classification Stage")
         return "continue"
 
 
@@ -197,7 +229,7 @@ def classify_problems(state: AgentState) -> AgentState:
     Ask the LLM to classify the identified invoice's problems.
     """
 
-    print("Classifying problems...")
+    run_log.note("Classifying problems...")
     identified = state["problems"]
 
     # If not problems were identified
@@ -220,7 +252,7 @@ def resolve_problems(state: AgentState) -> AgentState:
     Ask the LLM to resolve the classified problems, one tool request per turn.
     """
 
-    print(f"Resolving problems... (lookups used: {state['tool_calls_used']})")
+    run_log.note(f"Resolving problems... (lookups used: {state['tool_calls_used']})")
     labeled = state["labeled_problems"]
 
     # Nothing to resolve when classification produced nothing
@@ -265,14 +297,14 @@ def router_2(state: AgentState):
 
     # The resolver either asks for a tool or says it is done
     if state["tool"] == "none":
-        print("Resolution complete")
+        run_log.note("Resolution complete")
         return "done"
 
     if state["tool_calls_used"] >= MAX_TOOL_CALLS:
-        print("Tool call limit reached, stopping the resolution loop")
+        run_log.note("Tool call limit reached, stopping the resolution loop")
         return "done"
 
-    print(f"Running tool: {state['tool']}")
+    # The executor logs the tool call itself, so no note here
     return "tool"
 
 
@@ -302,7 +334,7 @@ def execute_tool(state: AgentState) -> AgentState:
         result_text = f"Tool call failed: {error}"
         status_text = f"failed ({error})"
 
-    print(f"Tool {tool_name} answered: {status_text}")
+    run_log.log_tool_step(tool_name, argument, status_text, result_text)
 
     # Record the request and its result for the next resolver turn
     request_message = AIMessage(content=f"[Tool call] {tool_name}({argument})")
@@ -362,11 +394,11 @@ def run_system():
     check_api_up()
 
     data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
-    name = "Faktura 41481.xml"
+    name = "Faktura 449550.xml"
 
     # for name in data_dir.rglob("*.xml"):
 
-    print("\n ===== START =====")
+    run_log.start(name)
     invoice = parse_invoice_xml(data_dir / name)
 
     # # some example filenames also name the invoice's known problem, and
@@ -394,29 +426,84 @@ def run_system():
     }
 
     result = agent.invoke(initial_state)
+    run_log.finish(result)
 
-    print_invoice_problems(result=result)
+    print()
+    run_log.print_summary()
 
-    # the resolver conclusions (one block per problem)
-    print(f"\nLookups used: {result['tool_calls_used']}")
-    resolutions = result["resolutions"]
-    if resolutions is None:
-        print("No resolutions produced.")
-    else:
+    # deeper views when needed:
+    # run_log.print_step("resolve")   # one step in detail: "identify", "classify", "resolve", "tool", "note"
+    # run_log.print_full()            # everything, including the thinking
+    run_log.save_txt()              # write the full log to logs/
+
+
+def run_all_invoices():
+    """
+    Run the agent on every example XML invoice and print a scoreboard.
+    """
+
+    # Error if api/app is not running
+    check_api_up()
+
+    # only the final scoreboard in the terminal; the full logs still go to logs/
+    run_log.live_output = False
+
+    data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
+    scores = []
+
+    for xml_file in sorted(data_dir.glob("*.xml")):
+        invoice = parse_invoice_xml(xml_file)
+
+        # some example filenames also name the invoice's known problem, and
+        # the agent must never see that - keep only the type and the number
+        raw_source = invoice["source_file"]
+        source_match = re.match(r"^(Faktura|Kreditnota)\s+([0-9-]+)", raw_source)
+        if source_match is not None:
+            invoice["source_file"] = source_match.group(1) + " " + source_match.group(2)
+        else:
+            del invoice["source_file"]
+
+        invoice_json = json.dumps(invoice, indent=2, ensure_ascii=False)
+
+        run_log.start(xml_file.name)
+        initial_state: AgentState = {
+            "messages": [HumanMessage(content=invoice_json)],
+            "problems": None,
+            "labeled_problems": None,
+            "resolve_messages": [],
+            "tool": "none",
+            "argument": "",
+            "tool_calls_used": 0,
+            "resolutions": None
+        }
+
+        result = agent.invoke(initial_state)
+        run_log.finish(result)
+        run_log.save_txt()
+
+        # count how many of the invoice's problems got a resolved resolution
+        resolutions = result["resolutions"]
+        if resolutions is None:
+            resolutions = []
+        resolved_count = 0
         for resolution in resolutions:
             if resolution.resolved:
-                status = "resolved"
-            else:
-                status = "unresolved"
-            print(f"- [{status}] {resolution.problem}")
-            print(f"    - Suggestion: {resolution.suggestion}")
-            print(f"    - Source:     {resolution.source}")
-            print(f"    - Why:        {resolution.why}")
-            print("\n")
+                resolved_count = resolved_count + 1
 
-    print("\n ===== END =====")
-    print("\n\n\n\n")
+        scores.append((xml_file.stem, resolved_count, len(resolutions)))
+
+    # final scoreboard over all invoices
+    total_resolved = 0
+    total_problems = 0
+    for invoice_name, resolved_count, problem_count in scores:
+        total_resolved = total_resolved + resolved_count
+        total_problems = total_problems + problem_count
+
+    print(f"\n===== SCOREBOARD: {total_resolved}/{total_problems} problems resolved =====")
+    for invoice_name, resolved_count, problem_count in scores:
+        print(f"    {invoice_name} ({resolved_count}/{problem_count})")
 
 
 if __name__ == "__main__":
-    run_system()
+    # run_system()
+    run_all_invoices()

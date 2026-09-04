@@ -116,16 +116,65 @@ def lookup_io(io: str):
 
 
 
+def _relaxed_person_search(name: str, key: str, tokens: list):
+    """
+    Third search method where one query word may be wrong or extra.
+
+    Retries the token search once per query word with that word left out.
+    Needs at least 3 query words. A single hit can serve as the resolution;
+    several hits are candidates for the caseworker.
+
+    Args:
+        name (str): The original query name.
+        key (str): The normalized key of the query.
+        tokens (list[str]): The words of the normalized key.
+
+    Returns:
+        dict: match_type is "partial_relaxed", "too_many" or "none".
+    """
+
+    if len(tokens) < 3:
+        return {"query": name, "normalized_key": key, "match_type": "none", "persons": []}
+
+    relaxed_rows = []
+    seen_persons = []
+    for drop_index in range(len(tokens)):
+        reduced_tokens = tokens[:drop_index] + tokens[drop_index + 1:]
+        subset_rows = _query(
+            "SELECT name_original, koststed, koststed_name FROM persons WHERE name_tokens @> %s",
+            (reduced_tokens,))
+
+        # collect every hit once, even when several reduced queries find it
+        for row in subset_rows:
+            person_id = f"{row[0]}|{row[1]}"
+            if person_id not in seen_persons:
+                seen_persons.append(person_id)
+                relaxed_rows.append(row)
+
+    if len(relaxed_rows) == 0:
+        return {"query": name, "normalized_key": key, "match_type": "none", "persons": []}
+
+    if len(relaxed_rows) > 10:
+        return {"query": name, "normalized_key": key, "match_type": "too_many", "persons": [],
+            "count": len(relaxed_rows),
+            "note": f"more than {10} names match all but one query word"}
+
+    return {"query": name, "normalized_key": key, "match_type": "partial_relaxed",
+        "persons": _person_dicts(relaxed_rows),
+        "note": "these names match all but one query word"}
+
+
 @app.get("/lookup/person")
 def lookup_person(name: str):
     """
-    Looks up a person name in report A with two search methods.
+    Looks up a person name in report A with three search methods.
 
     Args:
         name (str): The person name as written on the invoice.
 
     Returns:
-        dict: match_type is "exact", "partial", "none" or "too_many".
+        dict: match_type is "exact", "partial", "partial_relaxed", "none"
+        or "too_many".
     """
 
     key = normalize_name(name)
@@ -152,7 +201,7 @@ def lookup_person(name: str):
     partial_rows = _query("SELECT name_original, koststed, koststed_name FROM persons WHERE name_tokens @> %s", (tokens,))
 
     if len(partial_rows) == 0:
-        return {"query": name, "normalized_key": key, "match_type": "none", "persons": []}
+        return _relaxed_person_search(name, key, tokens)
 
     if len(partial_rows) > 10:
         return {"query": name, "normalized_key": key, "match_type": "too_many", "persons": [],
@@ -193,6 +242,42 @@ def lookup_koststed(code: str):
             "note": "not in report C... Possibly a retired code, not proof it is invalid"}
 
     return {"query": stripped_code, "status": "found", "description": rows[0][0]}
+
+
+
+@app.get("/lookup/koststed/{code}/ios")
+def lookup_ios_for_koststed(code: str):
+    """
+    Lists every IO registered on one koststed in report B.
+
+    For the manual search in the demo, not for the agent - the agent's
+    tool registry does not include this. The list can be long (one
+    koststed can hold thousands of IOs), so the caller owns the scrolling.
+
+    Args:
+        code (str): The koststed, normally 8 digits.
+
+    Returns:
+        dict: status is "found", "no_ios" or "invalid_format", with the
+        IOs sorted ascending and a count.
+    """
+
+    stripped_code = code.strip()
+
+    if re.fullmatch(r"\d{8}", stripped_code) is None:
+        return {"query": stripped_code, "status": "invalid_format", "note": "a koststed is always exactly 8 digits"}
+
+    rows = _query("SELECT io FROM ios WHERE koststed = %s ORDER BY io", (stripped_code,))
+
+    ios = []
+    for row in rows:
+        ios.append(row[0])
+
+    if len(ios) == 0:
+        return {"query": stripped_code, "status": "no_ios", "count": 0, "ios": [],
+            "note": "no IOs in report B are registered on this koststed"}
+
+    return {"query": stripped_code, "status": "found", "count": len(ios), "ios": ios}
 
 
 

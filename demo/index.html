@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automatisk fakturakontroll</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #f7f8fa;
+    color: #222;
+  }
+  main { max-width: 1380px; margin: 0 auto; padding: 28px 20px 60px; }
+
+  #layout { display: flex; gap: 26px; align-items: flex-start; }
+  #left-column { flex: 1; min-width: 0; }
+
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  h2 { font-size: 1.05rem; margin-bottom: 10px; }
+  #status-line { color: #555; margin-bottom: 18px; min-height: 1.3em; }
+
+  #error-banner {
+    background: #fbe3e3;
+    border: 1px solid #c96a6a;
+    color: #7a2222;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+  }
+
+  #dropzone {
+    border: 2px dashed #9db4c9;
+    border-radius: 10px;
+    background: #fff;
+    text-align: center;
+    padding: 26px 16px;
+    cursor: pointer;
+    margin-bottom: 28px;
+  }
+  #dropzone.hover { border-color: #2f6fad; background: #eef5fc; }
+  #dropzone strong { display: block; font-size: 1.05rem; }
+  #dropzone span { color: #777; font-size: 0.85rem; }
+
+  #pipeline { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 30px; }
+  .stage { flex: 1; text-align: center; }
+  .stage-box {
+    border: 2px solid #b6b6b6;
+    border-radius: 8px;
+    background: #fff;
+    padding: 15px 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: background 0.3s, border-color 0.3s;
+  }
+  .stage.done .stage-box { background: #e3f2e3; border-color: #4c9a52; }
+  .stage.active .stage-box {
+    border-color: #2f6fad;
+    background: linear-gradient(90deg, #cde3f8 0 50%, #ffffff 50% 100%);
+    background-size: 200% 100%;
+    animation: fill 1.4s linear infinite;
+  }
+  .stage.skipped .stage-box { border-style: dashed; opacity: 0.45; }
+  @keyframes fill {
+    from { background-position: 100% 0; }
+    to { background-position: 0 0; }
+  }
+  .stage-desc { font-size: 0.76rem; color: #666; margin-top: 6px; min-height: 2.3em; padding: 0 4px; }
+  .stage-verdict { font-size: 0.8rem; font-weight: 600; color: #1d3a57; margin-top: 2px; min-height: 1.2em; padding: 0 4px; }
+
+  .arrow { flex: 0 0 20px; height: 2px; background: #999; margin-top: 26px; position: relative; }
+  .arrow::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    top: -4px;
+    border-left: 7px solid #999;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+  }
+
+  section { background: #fff; border: 1px solid #e0e3e8; border-radius: 8px; padding: 16px 18px; margin-bottom: 20px; }
+
+  #lookup-list { list-style: none; }
+  #lookup-list li { padding: 4px 0; font-size: 0.9rem; border-bottom: 1px solid #f0f0f0; }
+  #lookup-list li:last-child { border-bottom: none; }
+  .lookup-name { font-weight: 600; }
+  .lookup-outcome { color: #1d3a57; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th { text-align: left; padding: 6px 8px; border-bottom: 2px solid #d5d9df; }
+  td { padding: 8px; border-bottom: 1px solid #ececec; vertical-align: top; }
+  .small { font-size: 0.78rem; color: #777; margin-top: 3px; }
+  .headline { font-weight: 600; }
+  .suggestion-value { font-weight: 600; }
+
+  .badge { padding: 2px 10px; border-radius: 10px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+  .badge-ok { background: #dff2df; color: #25692b; }
+  .badge-confirm { background: #fdf0d4; color: #8a6410; }
+  .badge-open { background: #ececec; color: #555; }
+
+  /* the manual search sidebar, deliberately subdued */
+  #search-panel {
+    flex: 0 0 300px;
+    background: #fbfbfd;
+    border: 1px solid #e0e3e8;
+    border-radius: 8px;
+    padding: 14px 16px;
+    position: sticky;
+    top: 16px;
+  }
+  #search-panel h2 { font-size: 0.95rem; color: #555; margin-bottom: 2px; }
+  .search-hint { font-size: 0.75rem; color: #999; margin-bottom: 10px; }
+  #search-form { display: flex; gap: 6px; margin-bottom: 12px; }
+  #search-input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid #c6ccd4;
+    border-radius: 6px;
+    font-size: 0.85rem;
+  }
+  #search-form button {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    background: #2f6fad;
+    color: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  #search-result { font-size: 0.85rem; }
+  .search-kind { font-weight: 600; margin-bottom: 4px; }
+  .search-main { font-size: 1.05rem; font-weight: 700; color: #1d3a57; }
+  .search-sub { font-size: 0.8rem; color: #666; margin-top: 4px; }
+  .io-list {
+    list-style: none;
+    max-height: 260px;
+    overflow-y: auto;
+    margin-top: 6px;
+    border: 1px solid #e4e7eb;
+    border-radius: 6px;
+    padding: 6px 10px;
+    background: #fff;
+  }
+  .io-list li { padding: 2px 0; border-bottom: 1px solid #f4f4f4; }
+  .io-list li:last-child { border-bottom: none; }
+  .person-list { list-style: none; margin-top: 6px; }
+  .person-list li { padding: 6px 0; border-bottom: 1px solid #ececec; }
+  .person-list li:last-child { border-bottom: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Automatisk fakturakontroll</h1>
+  <p id="status-line">Venter på faktura</p>
+
+  <div id="layout">
+  <div id="left-column">
+
+  <div id="error-banner" hidden></div>
+
+  <div id="dropzone">
+    <strong>Slipp en XML-faktura her</strong>
+    <span>eller klikk for å velge fil</span>
+    <input type="file" id="file-input" accept=".xml" hidden>
+  </div>
+
+  <div id="pipeline">
+    <div class="stage" data-stage="receive">
+      <div class="stage-box">Mottak</div>
+      <div class="stage-desc">Fakturaen lastes opp</div>
+      <div class="stage-verdict"></div>
+    </div>
+    <div class="arrow"></div>
+    <div class="stage" data-stage="extract">
+      <div class="stage-box">Uttrekk</div>
+      <div class="stage-desc">Alle felter leses ut av XML-en</div>
+      <div class="stage-verdict"></div>
+    </div>
+    <div class="arrow"></div>
+    <div class="stage" data-stage="identify">
+      <div class="stage-box">Finn problemer</div>
+      <div class="stage-desc">Språkmodellen finner det som stopper fakturaen</div>
+      <div class="stage-verdict"></div>
+    </div>
+    <div class="arrow"></div>
+    <div class="stage" data-stage="classify">
+      <div class="stage-box">Klassifiser</div>
+      <div class="stage-desc">Hvert problem får sin kategori</div>
+      <div class="stage-verdict"></div>
+    </div>
+    <div class="arrow"></div>
+    <div class="stage" data-stage="resolve">
+      <div class="stage-box">Slå opp og foreslå</div>
+      <div class="stage-desc">Slår opp i rapportene og foreslår rettelser</div>
+      <div class="stage-verdict"></div>
+    </div>
+  </div>
+
+  <section id="lookups-section" hidden>
+    <h2>Oppslag i økonomirapportene</h2>
+    <ul id="lookup-list"></ul>
+  </section>
+
+  <section id="results-section" hidden>
+    <h2>Resultat til saksbehandler</h2>
+    <table>
+      <thead>
+        <tr><th>Problem</th><th>Forslag</th><th>Status</th></tr>
+      </thead>
+      <tbody id="result-rows"></tbody>
+    </table>
+  </section>
+
+  </div>
+
+  <aside id="search-panel">
+    <h2>Søk i rapportene</h2>
+    <p class="search-hint">IO, koststed eller personnavn</p>
+    <form id="search-form">
+      <input id="search-input" type="text" autocomplete="off">
+      <button type="submit">Søk</button>
+    </form>
+    <div id="search-result" hidden></div>
+  </aside>
+
+  </div>
+</main>
+
+<script>
+  var dropzone = document.getElementById("dropzone");
+  var fileInput = document.getElementById("file-input");
+  var errorBanner = document.getElementById("error-banner");
+  var lastUploadErrorAt = 0;
+
+  dropzone.addEventListener("click", function () { fileInput.click(); });
+
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files.length > 0) {
+      startRun(fileInput.files[0]);
+    }
+    fileInput.value = "";
+  });
+
+  dropzone.addEventListener("dragover", function (event) {
+    event.preventDefault();
+    dropzone.classList.add("hover");
+  });
+
+  dropzone.addEventListener("dragleave", function () {
+    dropzone.classList.remove("hover");
+  });
+
+  dropzone.addEventListener("drop", function (event) {
+    event.preventDefault();
+    dropzone.classList.remove("hover");
+    if (event.dataTransfer.files.length > 0) {
+      startRun(event.dataTransfer.files[0]);
+    }
+  });
+
+  async function startRun(file) {
+    var url = "/run?filename=" + encodeURIComponent(file.name);
+    var response = await fetch(url, { method: "POST", body: file });
+    if (!response.ok) {
+      var data = await response.json();
+      showError(data.message);
+    }
+  }
+
+  function showError(message) {
+    errorBanner.textContent = message;
+    errorBanner.hidden = false;
+    lastUploadErrorAt = Date.now();
+  }
+
+  function esc(value) {
+    var div = document.createElement("div");
+    if (value === null || value === undefined) {
+      div.textContent = "";
+    } else {
+      div.textContent = String(value);
+    }
+    return div.innerHTML;
+  }
+
+  document.getElementById("search-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var query = document.getElementById("search-input").value.trim();
+    if (query === "") {
+      return;
+    }
+    var resultBox = document.getElementById("search-result");
+    resultBox.hidden = false;
+    resultBox.innerHTML = "<em>søker ...</em>";
+    try {
+      var response = await fetch("/search?query=" + encodeURIComponent(query));
+      var data = await response.json();
+      resultBox.innerHTML = renderSearch(data);
+    } catch (error) {
+      resultBox.innerHTML = "Søket feilet, sjekk at oppslags-APIet kjører";
+    }
+  });
+
+  function renderPersons(persons) {
+    var items = [];
+    for (var i = 0; i < persons.length; i++) {
+      var person = persons[i];
+      items.push(
+        "<li><strong>" + esc(person.name) + "</strong><br>"
+        + esc(person.koststed) + " " + esc(person.koststed_name) + "</li>"
+      );
+    }
+    return '<ul class="person-list">' + items.join("") + "</ul>";
+  }
+
+  function renderSearch(data) {
+    if (data.kind === "io") {
+      var io = data.result;
+      var parts = ['<div class="search-kind">IO ' + esc(data.query) + "</div>"];
+      if (io.status === "found") {
+        parts.push('<div class="search-main">' + esc(io.koststed) + "</div>");
+        parts.push('<div class="search-sub">' + esc(io.koststed_name) + "</div>");
+      } else if (io.status === "found_unknown_koststed") {
+        parts.push('<div class="search-sub">IO-en finnes, men rapport B mangler koststedet</div>');
+      } else {
+        parts.push('<div class="search-sub">Ikke i rapport B, ukjent for Unit4</div>');
+      }
+      return parts.join("");
+    }
+
+    if (data.kind === "koststed") {
+      var parts = ['<div class="search-kind">Koststed ' + esc(data.query) + "</div>"];
+      if (data.catalog.status === "found") {
+        parts.push('<div class="search-main">' + esc(data.catalog.description) + "</div>");
+      } else {
+        parts.push('<div class="search-sub">Ikke i koststedskatalogen, kan være en utgått kode</div>');
+      }
+      if (data.ios.status === "found") {
+        parts.push('<div class="search-sub">' + data.ios.count + " innkjøpsordrer på koststedet:</div>");
+        var items = [];
+        for (var i = 0; i < data.ios.ios.length; i++) {
+          items.push("<li>" + esc(data.ios.ios[i]) + "</li>");
+        }
+        parts.push('<ul class="io-list">' + items.join("") + "</ul>");
+      } else {
+        parts.push('<div class="search-sub">Ingen innkjøpsordrer registrert på koststedet</div>');
+      }
+      return parts.join("");
+    }
+
+    if (data.kind === "person") {
+      var result = data.result;
+      var parts = ['<div class="search-kind">Personsøk</div>'];
+      if (result.match_type === "exact") {
+        parts.push(renderPersons(result.persons));
+      } else if (result.match_type === "partial") {
+        parts.push('<div class="search-sub">Delvis treff:</div>');
+        parts.push(renderPersons(result.persons));
+      } else if (result.match_type === "partial_relaxed") {
+        parts.push('<div class="search-sub">Delvis treff, ett ord matchet ikke:</div>');
+        parts.push(renderPersons(result.persons));
+      } else if (result.match_type === "too_many") {
+        parts.push('<div class="search-sub">For mange treff (' + result.count + "), skriv mer av navnet</div>");
+      } else {
+        if (result.note && result.note.indexOf("two words") !== -1) {
+          parts.push('<div class="search-sub">Ingen treff. Skriv minst to ord av navnet</div>');
+        } else {
+          parts.push('<div class="search-sub">Ingen treff i rapport A</div>');
+        }
+      }
+      return parts.join("");
+    }
+
+    return '<div class="search-sub">' + esc(data.note) + "</div>";
+  }
+
+  async function poll() {
+    try {
+      var response = await fetch("/status");
+      var state = await response.json();
+      render(state);
+    } catch (error) {
+      // serveren svarer ikke akkurat naa, proever igjen
+    }
+  }
+  setInterval(poll, 500);
+
+  function render(state) {
+    // status line at the top
+    var line = document.getElementById("status-line");
+    if (state.status === "idle") {
+      line.textContent = "Venter på faktura";
+    } else if (state.status === "running") {
+      line.textContent = "Behandler " + state.filename + " ...";
+    } else if (state.status === "done") {
+      line.textContent = "Ferdig på " + Math.round(state.duration_seconds) + " sekunder";
+    } else if (state.status === "error") {
+      line.textContent = "Noe gikk galt";
+    }
+
+    // the error banner shows run errors, and upload errors for a few seconds
+    if (state.status === "error" && state.error) {
+      errorBanner.textContent = state.error;
+      errorBanner.hidden = false;
+    } else if (Date.now() - lastUploadErrorAt > 5000) {
+      errorBanner.hidden = true;
+    }
+
+    // the pipeline diagram
+    for (var key in state.stages) {
+      var stage = state.stages[key];
+      var element = document.querySelector('.stage[data-stage="' + key + '"]');
+      element.classList.remove("active", "done", "skipped");
+      if (stage.status !== "pending") {
+        element.classList.add(stage.status);
+      }
+      element.querySelector(".stage-verdict").textContent = stage.verdict;
+    }
+
+    // the lookup list
+    var lookupsSection = document.getElementById("lookups-section");
+    var lookupList = document.getElementById("lookup-list");
+    if (state.lookups.length === 0) {
+      lookupsSection.hidden = true;
+    } else {
+      lookupsSection.hidden = false;
+      var items = [];
+      for (var i = 0; i < state.lookups.length; i++) {
+        var lookup = state.lookups[i];
+        var outcome;
+        if (lookup.outcome === null) {
+          outcome = "<em>pågår ...</em>";
+        } else {
+          outcome = '<span class="lookup-outcome">' + esc(lookup.outcome) + "</span>";
+        }
+        items.push(
+          '<li><span class="lookup-name">' + esc(lookup.name) + ':</span> "'
+          + esc(lookup.argument) + '" → ' + outcome + "</li>"
+        );
+      }
+      lookupList.innerHTML = items.join("");
+    }
+
+    // the result table
+    var resultsSection = document.getElementById("results-section");
+    var resultRows = document.getElementById("result-rows");
+    if (state.problems.length === 0) {
+      resultsSection.hidden = true;
+    } else {
+      resultsSection.hidden = false;
+      var rows = [];
+      for (var j = 0; j < state.problems.length; j++) {
+        var row = state.problems[j];
+
+        var badge = "";
+        if (row.status === "løst") {
+          badge = '<span class="badge badge-ok">Løst</span>';
+        } else if (row.status === "må bekreftes") {
+          badge = '<span class="badge badge-confirm">Må bekreftes</span>';
+        } else if (row.status === "uløst") {
+          badge = '<span class="badge badge-open">Uløst</span>';
+        }
+
+        var suggestionCell = "";
+        if (row.suggestion !== "") {
+          suggestionCell = '<div class="suggestion-value">' + esc(row.suggestion) + "</div>";
+        }
+        if (row.why !== "") {
+          suggestionCell = suggestionCell + '<div class="small">' + esc(row.why) + "</div>";
+        }
+
+        // the category name from the classifier is the short headline;
+        // the model's problem text becomes the explanation under it
+        var problemCell = "";
+        if (row.category !== "") {
+          problemCell = '<div class="headline">' + esc(row.category) + "</div>"
+            + '<div class="small">' + esc(row.problem) + "</div>";
+        } else {
+          problemCell = esc(row.problem);
+        }
+        problemCell = problemCell
+          + '<div class="small">felt: ' + esc(row.field) + ", verdi: " + esc(row.value) + "</div>";
+
+        rows.push(
+          "<tr>"
+          + "<td>" + problemCell + "</td>"
+          + "<td>" + suggestionCell + "</td>"
+          + "<td>" + badge + "</td>"
+          + "</tr>"
+        );
+      }
+      resultRows.innerHTML = rows.join("");
+    }
+  }
+</script>
+</body>
+</html>
