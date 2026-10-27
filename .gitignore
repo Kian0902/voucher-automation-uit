@@ -25,3 +25,11 @@ logs/
 *.md
 !README.md
 !demo/index.html
+
+# Folders
+data/screenshots_invoice_lists/*
+!data/screenshots_invoice_lists/.gitkeep
+old/
+
+# Tests
+tests/
