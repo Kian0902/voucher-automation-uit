@@ -5,9 +5,11 @@ langchain==1.3.11
 langchain_core==1.4.8
 langchain_openai==1.3.3
 langgraph==1.2.7
+mistralai==3.5.0
 openai==2.44.0
 psycopg[binary]==3.2.13
 pydantic==2.13.4
 python-dotenv==1.2.2
+rich==14.2.0
 snoop==0.6.0
 uvicorn==0.34.0

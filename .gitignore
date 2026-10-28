@@ -30,6 +30,7 @@ logs/
 data/screenshots_invoice_lists/*
 !data/screenshots_invoice_lists/.gitkeep
 old/
+evaluation/results
 
 # Tests
 tests/
