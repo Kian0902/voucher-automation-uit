@@ -158,6 +158,8 @@ def evaluate_screenshot(image_path: Path, client) -> dict:
         record["status"] = "parse_error"
         record["message"] = str(error)
         record["parse_seconds"] = time.perf_counter() - started
+        # a parsed file from an earlier run would pass for a result of this one
+        (result_dir / "erp_list.json").unlink(missing_ok=True)
         return record
     record["parse_seconds"] = time.perf_counter() - started
 

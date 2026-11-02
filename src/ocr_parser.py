@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from erp_list import COLUMNS, COLUMN_KEYS, new_list, new_row, to_json
+from erp_list import COLUMNS, COLUMN_KEYS, RESULT_LABELS, new_list, new_row, to_json
 
 
 _repo_root = Path(__file__).resolve().parent.parent
@@ -26,7 +26,29 @@ LOW_CONFIDENCE = 0.99
 # columns. None marks a column that is not carried into the structure.
 SCREEN_COLUMNS = ["row_number", None, None] + COLUMN_KEYS
 
+# The two row layouts seen on screen: all 14 columns, or the short variant that ends at Ordrenr.
+ROW_LAYOUTS = (14, 9)
+
+# The checkbox in column 2 as OCR read it on every row so far. The Zoom icon in column 3 comes
+# back as a varying glyph or an empty cell, and on some screenshots as no cell at all, which
+# shifts every value after it one column to the left.
+CHECKBOX_GLYPH = "☐"
+CHECKBOX_INDEX = 1
+ZOOM_INDEX = 2
+FAKTURADATO_INDEX = 7
+
 ROW_NUMBER_PATTERN = re.compile(r"[0-9]+")
+DATE_PATTERN = re.compile(r"[0-9]{2}\.[0-9]{2}\.[0-9]{4}")
+
+# Columns with a fixed format, checked after mapping so that a shifted row cannot pass silently.
+# An empty cell passes: red rows leave Lev.nr empty. Organisasjonsnr is digits only, not nine
+# digits, because one 10-digit value occurs in the screenshots.
+ANCHOR_PATTERNS = {
+    "lev_nr": re.compile(r"[0-9]{6}"),
+    "fakturadato": DATE_PATTERN,
+    "organisasjonsnr": re.compile(r"[0-9]+"),
+    "forfallsdato": DATE_PATTERN,
+}
 
 # Characters a header may contain. The ERP draws a sort icon in the header of the sorted column,
 # which OCR renders as a glyph such as "↗"; everything outside this set is dropped before comparing.
@@ -220,9 +242,73 @@ def cell_confidence(cell: dict, words: list) -> float | None:
     return lowest
 
 
+def restore_zoom_cell(cells: list) -> list:
+    """
+    Put back the Zoom cell when OCR left it out, which happens on whole screenshots.
+
+    Without it every value from Lev.nr onward sits one column to the left and would be mapped
+    wrongly with no error. The repair is made only when the evidence is exact: the row is one cell
+    short of a known layout, the checkbox is in its place, and the invoice date, which every row
+    carries, sits one column left of its place. Any other row is left for verify_row_layout().
+
+    Args:
+        cells (list): The cells of one body row.
+
+    Returns:
+        list: The cells with an empty cell inserted at the Zoom position, or the cells unchanged.
+    """
+    one_short = (len(cells) + 1) in ROW_LAYOUTS
+    if not one_short:
+        return cells
+    if cells[CHECKBOX_INDEX]["text"] != CHECKBOX_GLYPH:
+        return cells
+    date_shifted = DATE_PATTERN.fullmatch(cells[FAKTURADATO_INDEX - 1]["text"]) is not None
+    if not date_shifted:
+        return cells
+    zoom_cell = {"text": "", "is_header": False, "start": 0, "end": 0}
+    return cells[:ZOOM_INDEX] + [zoom_cell] + cells[ZOOM_INDEX:]
+
+
+def verify_row_layout(cells: list) -> None:
+    """
+    Stop unless a body row has the cell count of one of the two layouts seen on screen.
+
+    Args:
+        cells (list): The cells of one body row.
+
+    Raises:
+        ValueError: On any other count, which would misplace every column after the gap.
+    """
+    if len(cells) not in ROW_LAYOUTS:
+        raise ValueError(
+            f"row {cells[0]['text']} has {len(cells)} cells, the ERP list shows {ROW_LAYOUTS[0]} or {ROW_LAYOUTS[1]}")
+
+
+def verify_anchor_columns(row: dict) -> None:
+    """
+    Stop when a fixed-format column holds a value of another shape, the sign of a shifted row.
+
+    Args:
+        row (dict): A filled row from body_row_to_structure().
+
+    Raises:
+        ValueError: Naming the row number, the column and the value.
+    """
+    for key, pattern in ANCHOR_PATTERNS.items():
+        value = row[key]
+        if value is None:
+            continue
+        if pattern.fullmatch(value) is None:
+            raise ValueError(f"row {row['row_number']}: {key} reads {value!r}, expected {pattern.pattern}")
+
+
 def body_row_to_structure(cells: list, words: list) -> dict:
     """
     Map the cells of one body row onto the structure, by their position on screen.
+
+    A row missing its Zoom cell is repaired first. The cell count is then checked against the two
+    known layouts, and the fixed-format columns are checked after mapping, so a row whose values sit
+    in the wrong columns is rejected instead of saved.
 
     Args:
         cells (list): The cells of the row, column 1 first.
@@ -232,10 +318,11 @@ def body_row_to_structure(cells: list, words: list) -> dict:
         dict: A row from erp_list.new_row() with values and confidences filled in.
 
     Raises:
-        ValueError: When the row has more cells than the ERP list, or its row number is not digits.
+        ValueError: When the cell count matches no layout, the row number is not digits, or a
+            fixed-format column holds a value of another shape.
     """
-    if len(cells) > len(SCREEN_COLUMNS):
-        raise ValueError(f"row has {len(cells)} cells, the ERP list has at most {len(SCREEN_COLUMNS)}")
+    cells = restore_zoom_cell(cells)
+    verify_row_layout(cells)
     row_number_text = cells[0]["text"]
     if ROW_NUMBER_PATTERN.fullmatch(row_number_text) is None:
         raise ValueError(f"row number reads {row_number_text!r}, not digits")
@@ -249,6 +336,8 @@ def body_row_to_structure(cells: list, words: list) -> dict:
             continue
         row[key] = cell["text"]
         row["confidence"][key] = cell_confidence(cell, words)
+
+    verify_anchor_columns(row)
     return row
 
 
@@ -357,7 +446,7 @@ def _widest(values: list) -> int:
     return width
 
 
-def _build_table(title: str, erp_list: dict, cell_text: dict, justify: str) -> Table:
+def _build_table(title: str, erp_list: dict, cell_text: dict, justify: str, columns: list = COLUMNS) -> Table:
     """
     Build one boxed table over the rows, with every column at least as wide as its widest cell.
 
@@ -365,9 +454,10 @@ def _build_table(title: str, erp_list: dict, cell_text: dict, justify: str) -> T
 
     Args:
         title (str): Printed above the table.
-        erp_list (dict): The structure from parse_ocr_response().
-        cell_text (dict): {key: [(text, confidence) per row]} for the eleven columns.
-        justify (str): "left" or "right" for the eleven columns.
+        erp_list (dict): The structure from parse_ocr_response(), or a resolved list.
+        cell_text (dict): {key: [(text, confidence) per row]} for every column in columns.
+        justify (str): "left" or "right" for the columns.
+        columns (list): (key, header) pairs after the row number; the eleven ERP columns by default.
 
     Returns:
         Table: A rich table ready for Console.print().
@@ -378,15 +468,15 @@ def _build_table(title: str, erp_list: dict, cell_text: dict, justify: str) -> T
 
     table = Table(title=title, box=box.ROUNDED)
     table.add_column("Nr", justify="right", min_width=_widest(row_numbers), overflow="fold")
-    for key, header in COLUMNS:
+    for key, header in columns:
         texts = []
         for text, confidence in cell_text[key]:
             texts.append(text)
-        table.add_column(header, justify=justify, min_width=_widest(texts), overflow="fold")
+        table.add_column(header, justify=justify, min_width=_widest(texts), overflow="fold") # type: ignore
 
     for row_index, row_number in enumerate(row_numbers):
         cells = [Text(row_number)]
-        for key in COLUMN_KEYS:
+        for key, header in columns:
             text, confidence = cell_text[key][row_index]
             cells.append(_highlighted(text, confidence))
         table.add_row(*cells)
@@ -406,9 +496,32 @@ def _needed_width(table: Table) -> int:
     """
     width = 0
     for column in table.columns:
-        width = width + column.min_width + 2
+        width = width + column.min_width + 2 # type: ignore
     width = width + len(table.columns) + 1
     return width
+
+
+def _value_cell_text(rows: list) -> dict:
+    """
+    The eleven ERP columns as table cells: the value with its confidence, "" for an empty cell.
+
+    Args:
+        rows (list): The rows of a parsed or resolved list.
+
+    Returns:
+        dict: {key: [(text, confidence) per row]} for the eleven columns.
+    """
+    cell_text = {}
+    for key in COLUMN_KEYS:
+        column = []
+        for row in rows:
+            value = row[key]
+            if value is None:
+                column.append(("", None))
+            else:
+                column.append((value, row["confidence"][key]))
+        cell_text[key] = column
+    return cell_text
 
 
 def build_value_table(erp_list: dict) -> Table:
@@ -421,16 +534,7 @@ def build_value_table(erp_list: dict) -> Table:
     Returns:
         Table: A rich table ready for Console.print().
     """
-    cell_text = {}
-    for key in COLUMN_KEYS:
-        column = []
-        for row in erp_list["rows"]:
-            value = row[key]
-            if value is None:
-                column.append(("", None))
-            else:
-                column.append((value, row["confidence"][key]))
-        cell_text[key] = column
+    cell_text = _value_cell_text(erp_list["rows"])
     title = f"{erp_list['source_file']}   category: {erp_list['category']}   rows: {len(erp_list['rows'])}"
     return _build_table(title, erp_list, cell_text, "left")
 
@@ -459,25 +563,91 @@ def build_confidence_table(erp_list: dict) -> Table:
     return _build_table(title, erp_list, cell_text, "right")
 
 
+def _print_table(table: Table) -> None:
+    """
+    Print one table without cutting a value.
+
+    When the terminal is narrower than the table needs, it is printed at its full width with a
+    note, so lines wrap in the terminal but every value stays whole.
+
+    Args:
+        table (Table): A table built by _build_table().
+    """
+    console = Console()
+    needed_width = _needed_width(table)
+    if needed_width > console.width:
+        print(f"(this table needs {needed_width} columns, the terminal has {console.width}: widen the terminal for a clean view)")
+        wide_console = Console(width=needed_width)
+        wide_console.print(table)
+    else:
+        console.print(table)
+
+
 def print_tables(erp_list: dict) -> None:
     """
-    Print the value table and the confidence table, never cutting a value.
-
-    When the terminal is narrower than a table needs, the table is printed at its full width
-    with a note, so lines wrap in the terminal but every value stays whole.
+    Print the value table and the confidence table.
 
     Args:
         erp_list (dict): The structure from parse_ocr_response().
     """
-    console = Console()
-    for table in (build_value_table(erp_list), build_confidence_table(erp_list)):
-        needed_width = _needed_width(table)
-        if needed_width > console.width:
-            print(f"(this table needs {needed_width} columns, the terminal has {console.width}: widen the terminal for a clean view)")
-            wide_console = Console(width=needed_width)
-            wide_console.print(table)
+    _print_table(build_value_table(erp_list))
+    _print_table(build_confidence_table(erp_list))
+
+
+# Stage 2 output: the ERP columns again, then what the agent found for each row.
+RESOLVED_COLUMNS = COLUMNS + [("funnet_koststed", "Funnet koststed"), ("resultat", "Resultat")]
+
+
+def build_resolved_table(resolved_list: dict) -> Table:
+    """
+    Boxed table of a resolved list: the values, the koststeder found and the result label per row.
+
+    Args:
+        resolved_list (dict): The structure from list_agent.resolve_list().
+
+    Returns:
+        Table: A rich table ready for Console.print().
+    """
+    cell_text = _value_cell_text(resolved_list["rows"])
+
+    found_column = []
+    result_column = []
+    for row in resolved_list["rows"]:
+        found_column.append((", ".join(row["funnet_koststed"]), None))
+        if row["resultat"] is None:
+            result_column.append(("", None))
         else:
-            console.print(table)
+            result_column.append((row["resultat"], None))
+    cell_text["funnet_koststed"] = found_column
+    cell_text["resultat"] = result_column
+
+    counts = []
+    for label in RESULT_LABELS:
+        count = 0
+        for row in resolved_list["rows"]:
+            if row["resultat"] == label:
+                count = count + 1
+        counts.append(f"{label}: {count}")
+    title = f"{resolved_list['source_file']}   rows: {len(resolved_list['rows'])}   " + ", ".join(counts)
+    return _build_table(title, resolved_list, cell_text, "left", RESOLVED_COLUMNS)
+
+
+def print_resolved_tables(resolved_list: dict) -> None:
+    """
+    Print the resolved table, then the agent's explanation for every row.
+
+    Args:
+        resolved_list (dict): The structure from list_agent.resolve_list().
+    """
+    _print_table(build_resolved_table(resolved_list))
+    print("begrunnelse per rad:")
+    for row in resolved_list["rows"]:
+        explanation = row["begrunnelse"]
+        if explanation is None:
+            explanation = ""
+        print(f"  {row['row_number']}:")
+        for line in explanation.split("\n"):
+            print(f"     {line}")
 
 
 if __name__ == "__main__":

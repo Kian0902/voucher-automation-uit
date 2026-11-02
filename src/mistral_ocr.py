@@ -67,7 +67,7 @@ def ocr_image(image_path: Path, client: Mistral) -> dict:
     document = {"type": "image_url", "image_url": data_url}
     response = client.ocr.process(
         model=OCR_MODEL,
-        document=document,
+        document=document, # type: ignore
         table_format="html",
         include_blocks=True,
         confidence_scores_granularity="word",
