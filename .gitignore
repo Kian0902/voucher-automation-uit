@@ -2,19 +2,18 @@
 venv/
 .venv/
 
-# Envs vars
+# Env vars and the app's config file: keys, never on GitHub
 .env
 .env.local
 .env.*.local
+config.env
 
 # Python
 __pycache__/
 
-# macOS
-.DS_Store
-
-# logs
+# logs and the app's outputs (run records, result files)
 logs/
+output/
 
 # Files
 *.pdf
@@ -25,6 +24,8 @@ logs/
 *.md
 !README.md
 !demo/index.html
+!app/INSTALL.md
+!app/pages/*.html
 
 # Folders
 data/screenshots_invoice_lists/*
@@ -34,3 +35,12 @@ evaluation/results
 
 # Tests
 tests/
+
+# PyInstaller: the intermediate build and the plain-folder variant stay out.
+# The .app in dist/ goes to GitHub whole, so the file rules above do not apply inside it.
+build/
+dist/Fakturaassistent/
+!dist/Fakturaassistent.app/**
+
+# macOS, last so it also wins inside the .app
+.DS_Store

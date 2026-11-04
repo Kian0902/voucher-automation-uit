@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fakturaassistent</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-page="/agents">
+<nav id="sidebar"></nav>
+<main id="content">
+  <h1>Agenter</h1>
+  <p id="status-line">Venter på fil</p>
+
+  <div id="layout">
+  <div id="left-column">
+
+  <div id="error-banner" hidden></div>
+
+  <div id="dropzone">
+    <strong>Slipp en faktura (XML) eller et skjermbilde av listen (PNG) her</strong>
+    <span>eller klikk for å velge fil</span>
+    <input type="file" id="file-input" accept=".xml,.png" hidden>
+  </div>
+
+  <div id="pipeline"></div>
+
+  <section id="lookups-section" hidden>
+    <h2>Oppslag i økonomirapportene</h2>
+    <ul id="lookup-list"></ul>
+  </section>
+
+  <section id="results-section" hidden>
+    <h2>Resultat til saksbehandler</h2>
+    <table>
+      <thead>
+        <tr><th>Problem</th><th>Forslag</th><th>Status</th></tr>
+      </thead>
+      <tbody id="result-rows"></tbody>
+    </table>
+  </section>
+
+  <section id="list-section" hidden>
+    <h2>Radene i listen</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Rad</th><th>Leverandør</th><th>Fakturanr</th><th>Deres ref.</th><th>Ordrenr</th>
+          <th>Funnet koststed</th><th>Begrunnelse</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="list-rows"></tbody>
+    </table>
+    <div id="saved-files" class="saved-files"></div>
+  </section>
+
+  </div>
+
+  <aside id="search-panel">
+    <h2>Søk i rapportene</h2>
+    <p class="search-hint">IO, koststed eller personnavn</p>
+    <form id="search-form">
+      <input id="search-input" type="text" autocomplete="off">
+      <button type="submit">Søk</button>
+    </form>
+    <div id="search-result" hidden></div>
+  </aside>
+
+  </div>
+</main>
+<script src="/static/shell.js"></script>
+<script src="/static/agents.js"></script>
+</body>
+</html>

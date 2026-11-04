@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fakturaassistent</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-page="/knowledge">
+<nav id="sidebar"></nav>
+<main id="content">
+  <h1>Kunnskapsbase</h1>
+  <p class="page-intro">De tre rapportene oppslagene bruker. Endringer skrives rett til CSV-filene i data/koststed_tables og tas i bruk med en gang.</p>
+  <div id="knowledge-error" class="error-banner" hidden></div>
+  <div id="lock-note" class="lock-note" hidden>En kjøring pågår. Rapportene kan endres når den er ferdig.</div>
+  <div id="report-tabs" class="report-tabs"></div>
+
+  <section>
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Søk i rapporten" autocomplete="off">
+      <select id="page-size">
+        <option value="25">25 per side</option>
+        <option value="50" selected>50 per side</option>
+        <option value="100">100 per side</option>
+        <option value="200">200 per side</option>
+      </select>
+      <span id="count" class="count"></span>
+      <span class="toolbar-space"></span>
+      <button id="add-button" type="button">Ny rad</button>
+      <button id="upload-button" type="button" class="button-secondary">Last opp ny eksport</button>
+      <input id="upload-input" type="file" accept=".csv,text/csv" hidden>
+      <a id="download-link" class="button button-secondary" href="/knowledge/download?report=a">Last ned CSV</a>
+    </div>
+    <div id="upload-confirm" class="confirm-box" hidden>
+      <span id="upload-text"></span>
+      <button id="upload-accept" type="button" class="button-danger">Erstatt</button>
+      <button id="upload-cancel" type="button" class="button-secondary">Avbryt</button>
+    </div>
+    <p id="message" class="message" hidden></p>
+    <table id="rows-table">
+      <thead id="rows-head"></thead>
+      <tbody id="rows-body"></tbody>
+    </table>
+    <div class="pager">
+      <button id="prev" type="button" class="button-secondary">Forrige</button>
+      <span id="page-info"></span>
+      <button id="next" type="button" class="button-secondary">Neste</button>
+    </div>
+  </section>
+</main>
+<script src="/static/shell.js"></script>
+<script src="/static/knowledge.js"></script>
+</body>
+</html>

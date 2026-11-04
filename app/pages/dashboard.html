@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fakturaassistent</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-page="/">
+<nav id="sidebar"></nav>
+<main id="content">
+  <h1>Dashbord</h1>
+  <div class="toolbar">
+    <span>Kjøringene på denne maskinen.</span>
+    <label for="weeks">Periode</label>
+    <select id="weeks">
+      <option value="4">4 uker</option>
+      <option value="8" selected>8 uker</option>
+      <option value="12">12 uker</option>
+      <option value="26">26 uker</option>
+      <option value="52">52 uker</option>
+    </select>
+  </div>
+
+  <div id="dashboard-error" class="error-banner" hidden></div>
+
+  <div class="kpi-grid" id="kpis"></div>
+
+  <section>
+    <h2>Behandlet per uke</h2>
+    <div class="chart" id="chart"></div>
+    <div class="legend">
+      <span><span class="swatch" style="background: #4c9a52"></span>Løst</span>
+      <span><span class="swatch" style="background: #d9a21b"></span>Må bekreftes</span>
+      <span><span class="swatch" style="background: #9a9a9a"></span>Uløst</span>
+    </div>
+  </section>
+
+  <div class="two-columns">
+    <section>
+      <h2>Hvorfor uløst</h2>
+      <ul class="reason-list" id="reasons"></ul>
+    </section>
+    <section>
+      <h2>Rapportene</h2>
+      <table>
+        <thead><tr><th>Rapport</th><th>Rader</th><th>Fil datert</th></tr></thead>
+        <tbody id="reports"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <section>
+    <h2>Siste kjøringer</h2>
+    <table>
+      <thead>
+        <tr><th>Tidspunkt</th><th>Type</th><th>Fil</th><th>Resultat</th><th>Tid</th><th>Tokens</th></tr>
+      </thead>
+      <tbody id="recent"></tbody>
+    </table>
+    <div class="note" id="models"></div>
+  </section>
+</main>
+<script src="/static/shell.js"></script>
+<script src="/static/dashboard.js"></script>
+</body>
+</html>

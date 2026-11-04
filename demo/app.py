@@ -16,11 +16,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 _repo_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_repo_root / "src"))
 
-import httpx
 from langchain_core.messages import HumanMessage
 
 import main as agent_main
-from lookup_tools import API_BASE_URL, TIMEOUT_SECONDS, check_api_up, lookup_io, lookup_koststed, lookup_person
+import lookup_data
+from lookup_tools import check_data_loaded, lookup_io, lookup_koststed, lookup_person
 from xml_processor import parse_invoice_xml
 
 
@@ -520,20 +520,18 @@ def status() -> dict:
 
 def _fetch_ios_for_koststed(code: str) -> dict:
     """
-    Fetches every IO on one koststed from the lookup API.
+    Lists every IO on one koststed.
 
-    Not wrapped in lookup_tools because the agent must not have it;
-    only the manual search uses it.
+    Not in lookup_tools because the agent must not have it; only the manual search uses it.
 
     Args:
         code (str): The 8-digit koststed.
 
     Returns:
-        dict: The API response with status, count and the IO list.
+        dict: status, count and the IO list.
     """
 
-    response = httpx.get(f"{API_BASE_URL}/lookup/koststed/{code}/ios", timeout=TIMEOUT_SECONDS)
-    return response.json()
+    return lookup_data.lookup_ios_for_koststed(code)
 
 
 @app.get("/search")
@@ -609,10 +607,10 @@ async def run(request: Request, filename: str = "faktura.xml"):
         return JSONResponse({"message": "Ingen fil mottatt"}, status_code=400)
 
     try:
-        check_api_up()
-    except RuntimeError:
+        check_data_loaded()
+    except (FileNotFoundError, ValueError) as error:
         return JSONResponse(
-            {"message": "Oppslags-APIet kjører ikke. Start det med: python api/app.py"},
+            {"message": f"Oppslagsdataene kunne ikke lastes: {error}"},
             status_code=503,
         )
 

@@ -1,85 +1,74 @@
+"""
+The lookups the agents may call, and the registry the resolver's tool dispatch reads.
+
+The functions are thin wrappers around src/lookup_data.py, which holds the three reports in
+memory. They keep the names and result dicts of the old HTTP tools, so the prompts and the
+execute_tool nodes did not change when the database went away.
+"""
+
+import lookup_data
 
 
-
-import os
-from pathlib import Path
-from urllib.parse import quote
-
-import httpx
-from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
-
-
-
-
-
-API_BASE_URL = os.environ.get("LOOKUP_API_URL", "http://127.0.0.1:8000")
-TIMEOUT_SECONDS = 10
-
-def check_api_up() -> dict:
+def check_data_loaded() -> dict:
     """
-    Checks that the lookup API is running and can see the database.
+    Loads the three reports if they are not loaded yet and reports their row counts.
 
-    Returns: dict: The /health response with the table counts.
-    Raises: RuntimeError: When the API does not answer, with the command to start it.
+    Called once at the start of a run, where the old health check of the lookup API was.
+
+    Returns:
+        dict: status "ok" and the row counts per table.
+
+    Raises:
+        FileNotFoundError: When a report CSV is missing from the data folder.
+        ValueError: When a report has another column layout than expected.
     """
 
-    try:
-        response = httpx.get(f"{API_BASE_URL}/health", timeout=TIMEOUT_SECONDS)
-    except httpx.ConnectError as error:
-        raise RuntimeError(
-            f"lookup API not reachable on {API_BASE_URL}. Start it with: python api/app.py"
-        ) from error
-
-    return response.json()
+    return lookup_data.health()
 
 
 def lookup_io(io: str) -> dict:
     """
-    Looks up one IO (innkjøpsordrenummer) in report B through the API.
+    Looks up one IO (innkjøpsordrenummer) in report B.
 
-    Args:  io (str): The IO from the invoice, normally 9 digits starting with 6.
+    Args:
+        io (str): The IO from the invoice or the list, normally 9 digits starting with 6.
+
     Returns:
-        dict: The API response. status "found" carries the koststed. "not_found" means
-        the IO is unknown to Unit4.
+        dict: status "found" carries the koststed. "not_found" means the IO is unknown to Unit4.
     """
 
-    encoded_io = quote(io, safe="")
-    response = httpx.get(f"{API_BASE_URL}/lookup/io/{encoded_io}", timeout=TIMEOUT_SECONDS)
-    return response.json()
+    return lookup_data.lookup_io(io)
 
 
 def lookup_person(name: str) -> dict:
     """
-    Looks up a person name in report A through the API.
+    Looks up a person name in report A.
 
-    Args:  name (str): The person name as written on the invoice.
+    Args:
+        name (str): The person name as written on the invoice or the list.
+
     Returns:
-        dict: The API response. match_type "exact" or "partial".
+        dict: match_type "exact", "partial", "partial_relaxed", "too_many" or "none".
     """
 
-    response = httpx.get(f"{API_BASE_URL}/lookup/person", params={"name": name}, timeout=TIMEOUT_SECONDS)
-    return response.json()
-
+    return lookup_data.lookup_person(name)
 
 
 def lookup_koststed(code: str) -> dict:
     """
-    Looks up one koststed in report C through the API.
+    Looks up one koststed in report C, the catalog.
 
-    Args:  code (str): The koststed from the invoice, normally 8 digits.
+    Args:
+        code (str): The koststed from the invoice or the list, normally 8 digits.
+
     Returns:
-        dict: The API response.
+        dict: status "found", "not_in_catalog" or "invalid_format".
     """
 
-    encoded_code = quote(code, safe="")
-    response = httpx.get(f"{API_BASE_URL}/lookup/koststed/{encoded_code}", timeout=TIMEOUT_SECONDS)
-    return response.json()
+    return lookup_data.lookup_koststed(code)
 
 
-
-# registry for the agents tool dispatch
+# registry for the agents' tool dispatch
 TOOLS = {
     "lookup_io": lookup_io,
     "lookup_person": lookup_person,
@@ -87,16 +76,18 @@ TOOLS = {
 }
 
 
-
 if __name__ == "__main__":
 
-    health = check_api_up()
+    health = check_data_loaded()
     assert health["status"] == "ok"
+    assert health["table_counts"]["persons"] > 0
 
     result_koststed = lookup_koststed("123")
     assert result_koststed["status"] == "invalid_format"
 
     result_person = lookup_person("...")
     assert result_person["match_type"] == "none"
+
+    assert set(TOOLS) == {"lookup_io", "lookup_person", "lookup_koststed"}
 
     print("lookup_tools test passed")

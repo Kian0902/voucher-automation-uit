@@ -10,6 +10,9 @@ from pathlib import Path
 # long texts are wrapped to this width so the terminal stays readable
 WRAP_WIDTH = 120
 
+# where save_txt() writes by default; the app points this next to the executable
+LOGS_DIR = Path(__file__).resolve().parent.parent / "logs"
+
 
 def _wrap(text, first_prefix: str, rest_prefix: str) -> list:
     """
@@ -88,8 +91,10 @@ class RunLog:
         self.finished_at = None
         self.steps = []
         self.problem_lines = []
+        self.value_lines = []  # the row agent's lookup values, shown instead of problems
         self.resolution_lines = []
         self.lookups_used = 0
+        self.finds_values = False
 
         # live terminal lines can be switched off for batch runs;
         # everything is still recorded and can be printed or saved after
@@ -108,8 +113,10 @@ class RunLog:
         self.finished_at = None
         self.steps = []
         self.problem_lines = []
+        self.value_lines = []  # the row agent's lookup values, shown instead of problems
         self.resolution_lines = []
         self.lookups_used = 0
+        self.finds_values = False
         if self.live_output:
             print(f"\n===== RUN START: {invoice_name} =====")
 
@@ -217,6 +224,25 @@ class RunLog:
                 self.resolution_lines.extend(_wrap(resolution.why, "    why:        ", "                "))
                 self.resolution_lines.append("")
 
+        # the row agent gives one answer for the row instead of one resolution per problem
+        # the row agent finds lookup values instead of problems
+        self.finds_values = "values" in final_state
+        found = final_state.get("values")
+        if found is not None:
+            for lookup_value in found.lookup_values:
+                self.value_lines.append(f"{lookup_value.kind}: {lookup_value.value} | field: {lookup_value.field}")
+
+        answer = final_state.get("answer")
+        if answer is not None:
+            if answer.resolved:
+                status = "resolved"
+            else:
+                status = "unresolved"
+            self.resolution_lines.extend(_wrap(", ".join(answer.koststeder), f"[{status}] koststeder: ", "    "))
+            self.resolution_lines.extend(_wrap(answer.source, "    source:     ", "                "))
+            self.resolution_lines.extend(_wrap(answer.why, "    why:        ", "                "))
+            self.resolution_lines.append("")
+
         if self.live_output:
             print(f"\n===== RUN FINISHED in {self.duration_seconds():.1f}s =====")
 
@@ -261,6 +287,19 @@ class RunLog:
                 total = total + step.output_tokens
         return total
 
+    def model_used(self):
+        """
+        The model that answered in this run.
+
+        Returns:
+            str | None: The model name of the first LLM step that reported one, else None.
+        """
+
+        for step in self.steps:
+            if step.kind == "llm" and step.model_name is not None:
+                return step.model_name
+        return None
+
     def _summary_lines(self) -> list:
         """
         Build the summary view: the outcome of the run in a few lines.
@@ -277,11 +316,19 @@ class RunLog:
             f" | lookups: {self.lookups_used}")
 
         lines.append("")
-        lines.append("Problems:")
-        if len(self.problem_lines) == 0:
-            lines.append("    (none)")
-        for line in self.problem_lines:
-            lines.append(f"    {line}")
+        if self.finds_values:
+            lines.append("Lookup values:")
+            if len(self.value_lines) == 0:
+                lines.append("    (none)")
+            for line in self.value_lines:
+                lines.append(f"    {line}")
+            lines.append("")
+        else:
+            lines.append("Problems:")
+            if len(self.problem_lines) == 0:
+                lines.append("    (none)")
+            for line in self.problem_lines:
+                lines.append(f"    {line}")
 
         lines.append("Resolutions:")
         if len(self.resolution_lines) == 0:
@@ -394,15 +441,15 @@ class RunLog:
 
         Args:
             path (str | Path | None): Target file. Default is
-                logs/run_<invoice>_<timestamp>.txt in the repo root.
+                run_<invoice>_<timestamp>.txt in LOGS_DIR.
 
         Returns:
             Path: The file that was written.
         """
 
         if path is None:
-            logs_dir = Path(__file__).resolve().parent.parent / "logs"
-            logs_dir.mkdir(exist_ok=True)
+            logs_dir = LOGS_DIR
+            logs_dir.mkdir(parents=True, exist_ok=True)
             safe_name = re.sub(r"[^A-Za-z0-9-]+", "_", str(self.invoice_name))
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             path = logs_dir / f"run_{safe_name}_{timestamp}.txt"

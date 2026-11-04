@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fakturaassistent</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-page="/settings">
+<nav id="sidebar"></nav>
+<main id="content">
+  <h1>Innstillinger</h1>
+  <p id="intro" class="page-intro">Endringer gjelder fra neste start av appen.</p>
+  <div id="settings-error" class="error-banner" hidden></div>
+  <div id="restart-note" class="lock-note" hidden></div>
+
+  <section>
+    <h2>Modellserver</h2>
+    <div class="field">
+      <label for="API_URL">Adresse til modellserveren</label>
+      <input id="API_URL" type="text" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="API_MODEL">Modell</label>
+      <div class="field-row">
+        <input id="API_MODEL" type="text" autocomplete="off" spellcheck="false">
+        <button id="models-button" type="button" class="button-secondary">Hent modeller fra serveren</button>
+      </div>
+      <select id="models-list" hidden></select>
+      <p id="models-note" class="small" hidden></p>
+    </div>
+    <div class="field">
+      <label for="API_KEY">Nøkkel til modellserveren</label>
+      <input id="API_KEY" type="password" autocomplete="new-password">
+      <p id="API_KEY-hint" class="small"></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mistral OCR</h2>
+    <div class="field">
+      <label for="MISTRAL_API_KEY">Nøkkel til Mistral OCR</label>
+      <input id="MISTRAL_API_KEY" type="password" autocomplete="new-password">
+      <p id="MISTRAL_API_KEY-hint" class="small"></p>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <button id="save-button" type="button">Lagre</button>
+    <span id="message" class="message" hidden></span>
+  </div>
+
+  <section>
+    <h2>Mapper og filer</h2>
+    <table>
+      <tbody id="folders"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Om appen</h2>
+    <p id="about" class="small"></p>
+  </section>
+</main>
+<script src="/static/shell.js"></script>
+<script src="/static/settings.js"></script>
+</body>
+</html>

@@ -36,8 +36,8 @@ CATEGORIES = ("yellow", "red")
 RESULT_LABELS = ("løst", "må bekreftes", "flere funnet", "uløst")
 
 # The columns of the overview sheet: the ERP list as on screen, then what the agent found,
-# its reasoning and what the row cost.
-CSV_KEYS = ["row_number"] + COLUMN_KEYS + ["funnet_koststed", "begrunnelse", "tid_brukt", "tokens_brukt"]
+# its reasoning and what the row cost. The reason codes stay out, they are for the dashboard.
+CSV_KEYS = ["row_number"] + COLUMN_KEYS + ["funnet_koststed", "begrunnelse", "tid_brukt", "tokens_brukt", "oppslag_brukt"]
 
 
 def new_row(row_number: int) -> dict:
@@ -97,7 +97,8 @@ def new_resolved_row(row: dict) -> dict:
 
     Returns:
         dict: The same keys and values, then "funnet_koststed": [], "resultat": None,
-              "begrunnelse": None, "tid_brukt": None, "tokens_brukt": None. The confidence
+              "begrunnelse": None, "tid_brukt": None, "tokens_brukt": None, "oppslag_brukt": None
+              and "grunner": [] (the reason codes for a row that is not løst). The confidence
               dict is copied, not shared.
 
     Example:
@@ -114,6 +115,8 @@ def new_resolved_row(row: dict) -> dict:
     resolved_row["begrunnelse"] = None
     resolved_row["tid_brukt"] = None
     resolved_row["tokens_brukt"] = None
+    resolved_row["oppslag_brukt"] = None
+    resolved_row["grunner"] = []
     return resolved_row
 
 
@@ -175,7 +178,7 @@ if __name__ == "__main__":
         assert row["confidence"][key] is None
 
     resolved_row = new_resolved_row(row)
-    assert list(resolved_row.keys()) == list(row.keys()) + ["funnet_koststed", "resultat", "begrunnelse", "tid_brukt", "tokens_brukt"]
+    assert list(resolved_row.keys()) == list(row.keys()) + ["funnet_koststed", "resultat", "begrunnelse", "tid_brukt", "tokens_brukt", "oppslag_brukt", "grunner"]
     assert resolved_row["confidence"] is not row["confidence"], "the confidence dict must be copied"
     assert resolved_row["funnet_koststed"] == [] and resolved_row["resultat"] is None
     assert len(RESULT_LABELS) == 4
@@ -189,6 +192,8 @@ if __name__ == "__main__":
     resolved_row["begrunnelse"] = "line one\nline two"
     resolved_row["tid_brukt"] = 45
     resolved_row["tokens_brukt"] = 9226
+    resolved_row["oppslag_brukt"] = 2
+    resolved_row["grunner"] = ["io_ukjent"]
     resolved_row["fakturabelop"] = "1 234,50"
     resolved_list = {"source_file": erp_list["source_file"], "category": "yellow", "rows": [resolved_row]}
     csv_rows = list(csv.reader(io.StringIO(to_csv(resolved_list))))
@@ -201,6 +206,8 @@ if __name__ == "__main__":
     assert csv_rows[1][CSV_KEYS.index("begrunnelse")] == "line one\nline two", "line breaks survive inside the cell"
     assert csv_rows[1][CSV_KEYS.index("tid_brukt")] == "45"
     assert csv_rows[1][CSV_KEYS.index("tokens_brukt")] == "9226"
+    assert csv_rows[1][CSV_KEYS.index("oppslag_brukt")] == "2"
+    assert "grunner" not in csv_rows[0], "the reason codes stay out of the sheet"
 
     try:
         new_list("x.png", "green")

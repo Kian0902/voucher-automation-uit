@@ -18,7 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from prompts import INVOICE_PROBLEM_IDENTIFICATION, INVOICE_PROBLEM_CLASSIFICATION, INVOICE_PROBLEM_RESOLUTION
 from xml_processor import parse_invoice_xml
-from lookup_tools import TOOLS, check_api_up
+from lookup_tools import TOOLS, check_data_loaded
 from run_log import RunLog
 
 from utils import save_graph_png
@@ -390,8 +390,8 @@ agent = graph.compile()
 
 def run_system():
 
-    # Error if api/app is not running
-    check_api_up()
+    # loads the three reports on the first run; a missing or changed CSV fails here, not mid-run
+    check_data_loaded()
 
     data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
     name = "Faktura 449550.xml"
@@ -442,16 +442,18 @@ def run_all_invoices():
     Run the agent on every example XML invoice and print a scoreboard.
     """
 
-    # Error if api/app is not running
-    check_api_up()
+    # loads the three reports on the first run; a missing or changed CSV fails here, not mid-run
+    check_data_loaded()
 
     # only the final scoreboard in the terminal; the full logs still go to logs/
     run_log.live_output = False
 
     data_dir = Path(__file__).resolve().parent.parent / "data" / "example_invoices"
+    xml_files = sorted(data_dir.glob("*.xml"))
     scores = []
+    print(f"{len(xml_files)} invoices, one log per run in logs/, scoreboard at the end")
 
-    for xml_file in sorted(data_dir.glob("*.xml")):
+    for index, xml_file in enumerate(xml_files, start=1):
         invoice = parse_invoice_xml(xml_file)
 
         # some example filenames also name the invoice's known problem, and
@@ -491,6 +493,7 @@ def run_all_invoices():
                 resolved_count = resolved_count + 1
 
         scores.append((xml_file.stem, resolved_count, len(resolutions)))
+        print(f"{index}/{len(xml_files)} {xml_file.stem}: {resolved_count}/{len(resolutions)} resolved, {run_log.duration_seconds():.1f} s")
 
     # final scoreboard over all invoices
     total_resolved = 0
