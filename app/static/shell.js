@@ -9,7 +9,10 @@ var PAGES = [
   { path: "/settings", title: "Innstillinger" },
 ];
 var POLL_INTERVAL_MS = 500;
+var FAILED_POLLS_BEFORE_BANNER = 4;
 var statusListeners = [];
+var failedPolls = 0;
+var appHasQuit = false;
 
 function esc(value) {
   var div = document.createElement("div");
@@ -179,19 +182,84 @@ function onStatus(listener) {
   statusListeners.push(listener);
 }
 
+// a bar across the top for the two cases where the pages cannot work: the app was quit,
+// or it does not answer any more
+function showTopBar(text) {
+  var bar = document.getElementById("top-bar");
+  if (bar === null) {
+    bar = document.createElement("div");
+    bar.id = "top-bar";
+    bar.className = "top-bar";
+    document.body.appendChild(bar);
+  }
+  bar.textContent = text;
+  bar.hidden = false;
+}
+
+function hideTopBar() {
+  var bar = document.getElementById("top-bar");
+  if (bar !== null) {
+    bar.hidden = true;
+  }
+}
+
+// In a browser the app has no window to close, so the sidebar gets a button that ends it.
+function showQuitButton() {
+  if (document.getElementById("quit-button") !== null) {
+    return;
+  }
+  var button = document.createElement("button");
+  button.id = "quit-button";
+  button.type = "button";
+  button.className = "quit-button";
+  button.textContent = "Avslutt appen";
+  button.addEventListener("click", async function () {
+    try {
+      await fetchJson("/quit", { method: "POST" });
+      appHasQuit = true;
+      showTopBar("Appen er avsluttet. Du kan lukke denne fanen. Start Fakturaassistent på nytt for å bruke den igjen.");
+    } catch (error) {
+      showTopBar(error.message);
+      setTimeout(hideTopBar, 5000);
+    }
+  });
+  document.getElementById("sidebar").appendChild(button);
+}
+
 async function pollStatus() {
+  if (appHasQuit) {
+    return;
+  }
+  var state;
   try {
     var response = await fetch("/status");
-    var state = await response.json();
-    var runDot = document.getElementById("run-dot");
-    if (runDot !== null) {
-      runDot.classList.toggle("visible", state.status === "running");
-    }
-    for (var i = 0; i < statusListeners.length; i++) {
-      statusListeners[i](state);
-    }
+    state = await response.json();
   } catch (error) {
-    // serveren svarer ikke akkurat naa, proever igjen
+    // only a failed request counts as lost contact, never an error in a page's own drawing
+    failedPolls = failedPolls + 1;
+    if (failedPolls === FAILED_POLLS_BEFORE_BANNER) {
+      showTopBar("Får ikke kontakt med appen. Start Fakturaassistent på nytt.");
+    }
+    return;
+  }
+
+  if (failedPolls >= FAILED_POLLS_BEFORE_BANNER) {
+    hideTopBar();
+  }
+  failedPolls = 0;
+  if (state.can_quit) {
+    showQuitButton();
+  }
+  var runDot = document.getElementById("run-dot");
+  if (runDot !== null) {
+    runDot.classList.toggle("visible", state.status === "running");
+  }
+  for (var i = 0; i < statusListeners.length; i++) {
+    try {
+      statusListeners[i](state);
+    } catch (error) {
+      console.error(error);
+    }
   }
 }
 

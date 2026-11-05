@@ -1,5 +1,5 @@
 """
-Starts the app: the server in a background thread, then a native window on it.
+Starts the app on a Mac: the server in a background thread, then a native window on it.
 
 This is what the desktop icon runs. Closing the window ends the process, and with it the server.
 """

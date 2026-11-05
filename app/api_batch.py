@@ -224,6 +224,21 @@ def find_job(job_id: int):
     return None
 
 
+def has_unfinished_jobs() -> bool:
+    """
+    Whether a file is being processed or still waits in the queue.
+
+    Returns:
+        bool: True when the queue has work left.
+    """
+
+    with JOBS_LOCK:
+        for job in JOBS:
+            if job["status"] in ("waiting", "running"):
+                return True
+    return False
+
+
 # THE WORKER
 
 def _next_waiting_job():

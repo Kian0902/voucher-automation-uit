@@ -1222,6 +1222,7 @@ def status() -> dict:
     snapshot["data_error"] = DATA_ERROR
     snapshot["settings_missing"] = SETTINGS_MISSING
     snapshot["run_id"] = RUN_ID
+    snapshot["can_quit"] = BROWSER_MODE
     return snapshot
 
 
@@ -1298,6 +1299,34 @@ def search(query: str):
 
     result = lookup_person(stripped_query)
     return {"kind": "person", "query": stripped_query, "result": result}
+
+
+# Set by the Windows launcher: the app runs in the staff's browser, has no window of its own
+# and therefore needs its own way to quit. The launcher waits on QUIT_REQUESTED.
+BROWSER_MODE = False
+QUIT_REQUESTED = threading.Event()
+
+
+@app.post("/quit")
+def quit_app():
+    """
+    End the program, for the "Avslutt appen" button the pages show in browser mode.
+
+    Refused while a file is being processed or waits in the batch queue, so a run is never
+    cut off by accident.
+
+    Returns:
+        A confirmation, or an error answer.
+    """
+
+    if not BROWSER_MODE:
+        return JSONResponse({"message": "Lukk vinduet for å avslutte appen"}, status_code=400)
+    if _run_is_active() or api_batch.has_unfinished_jobs():
+        return JSONResponse(
+            {"message": "En kjøring pågår. Stopp den, eller vent til den er ferdig"}, status_code=409,
+        )
+    QUIT_REQUESTED.set()
+    return {"message": "Appen avsluttes"}
 
 
 # one run starts at a time, whether it comes from the agent page or from the batch queue
@@ -1384,5 +1413,5 @@ async def run(request: Request, filename: str = "fil"):
 
 
 if __name__ == "__main__":
-    # for development in a browser; the desktop window is app/launcher.py
+    # for development in a browser; the desktop window is app/launcher_mac.py
     uvicorn.run(app, host="127.0.0.1", port=8001)

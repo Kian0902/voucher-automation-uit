@@ -1,0 +1,69 @@
+name: Windows build
+
+# Builds the Windows version of the desktop app on a Windows machine, starts it once to prove
+# that it works there, and offers the program folder as a ZIP under the run's Artifacts.
+
+on:
+  push:
+    branches: [windows-build, main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      # the packaged program runs in UTF-8 mode; the checks below run the same way
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install the requirements
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Self-checks that need no model and no report files
+        run: |
+          python src/normalize.py
+          python src/erp_list.py
+          python src/run_log.py
+          python app/api_dashboard.py
+          python app/api_knowledge.py
+          python app/api_settings.py
+          python app/api_batch.py
+
+      - name: Build the program
+        run: pyinstaller --noconfirm app/Fakturaassistent-windows.spec
+
+      - name: Start the built program and check it
+        run: python scripts/check_build.py dist/Fakturaassistent
+
+      - name: Package
+        shell: python
+        run: |
+          import shutil
+          from pathlib import Path
+
+          package = Path("package")
+          program = package / "Fakturaassistent"
+          package.mkdir()
+          shutil.move("dist/Fakturaassistent", program)
+
+          # the folder for the reports must exist in the ZIP, and an empty folder is not kept
+          reports = program / "data" / "koststed_tables"
+          reports.mkdir(parents=True, exist_ok=True)
+          (reports / "LES MEG.txt").write_text(
+              "Legg de tre rapportfilene (CSV) her, med de opprinnelige navnene.\n",
+              encoding="utf-8-sig",
+          )
+          shutil.copy("app/windows/LES MEG.txt", program / "LES MEG.txt")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Fakturaassistent-windows
+          path: package
+          if-no-files-found: error

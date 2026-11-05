@@ -14,6 +14,8 @@ body {
 /* SHELL */
 
 #sidebar {
+  display: flex;
+  flex-direction: column;
   flex: 0 0 220px;
   background: #fff;
   border-right: 1px solid #e0e3e8;
@@ -48,6 +50,22 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
+}
+
+/* browser mode only: the way to end the program, at the bottom of the sidebar */
+.quit-button { margin-top: auto; background: #fff; color: #7a2222; border: 1px solid #d9b3b3; }
+.quit-button:hover { background: #fbe3e3; }
+.top-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  background: #7a2222;
+  color: #fff;
+  padding: 12px 20px;
+  text-align: center;
+  font-weight: 600;
 }
 
 #content { flex: 1; min-width: 0; max-width: 1400px; padding: 28px 32px 60px; }

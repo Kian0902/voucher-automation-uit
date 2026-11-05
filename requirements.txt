@@ -9,7 +9,7 @@ openai==2.44.0
 pydantic==2.13.4
 python-dotenv==1.2.2
 pyinstaller==6.22.3
-pywebview==6.2.1
+pywebview==6.2.1; sys_platform == "darwin"
 rich==14.2.0
 snoop==0.6.0
 uvicorn==0.34.0

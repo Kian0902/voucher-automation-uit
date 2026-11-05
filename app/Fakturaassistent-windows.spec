@@ -1,11 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for the Mac app.
+PyInstaller spec for the Windows program.
 
-Build from the repo root with the venv active:
-    pyinstaller --noconfirm app/Fakturaassistent.spec
-The result is dist/Fakturaassistent.app. config.env, data/, logs/ and output/ live next to the
-.app, never inside it, so a new report export or a key change needs no rebuild.
+Built on Windows, by the GitHub workflow in .github/workflows/build-windows.yml:
+    pyinstaller --noconfirm app/Fakturaassistent-windows.spec
+The result is the folder dist/Fakturaassistent/ with Fakturaassistent.exe in it. config.env,
+data/, logs/ and output/ live in that same folder, next to the .exe.
+
+Same modules and data as the Mac spec (Fakturaassistent-mac.spec); what differs is the launcher,
+which opens the browser instead of a native window, and the packaging.
 """
 
 from pathlib import Path
@@ -34,7 +37,7 @@ datas = [(str(spec_dir / "pages"), "pages"), (str(spec_dir / "static"), "static"
 datas = datas + collect_data_files("anyascii")
 
 a = Analysis(
-    [str(spec_dir / "launcher.py")],
+    [str(spec_dir / "launcher_windows.py")],
     pathex=[str(spec_dir), str(src_dir)],
     binaries=[],
     datas=datas,
@@ -42,16 +45,19 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter"],
+    excludes=["tkinter", "webview"],
     noarchive=False,
 )
 
 pyz = PYZ(a.pure)
 
+# UTF-8 mode: every file the program reads or writes is UTF-8, whatever the Windows code page is
+interpreter_options = [("X utf8", None, "OPTION")]
+
 exe = EXE(
     pyz,
     a.scripts,
-    [],
+    interpreter_options,
     exclude_binaries=True,
     name="Fakturaassistent",
     debug=False,
@@ -60,10 +66,6 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
 )
 
 coll = COLLECT(
@@ -74,15 +76,4 @@ coll = COLLECT(
     upx=False,
     upx_exclude=[],
     name="Fakturaassistent",
-)
-
-app = BUNDLE(
-    coll,
-    name="Fakturaassistent.app",
-    icon=None,
-    bundle_identifier="no.uit.fakturaassistent",
-    info_plist={
-        "NSHighResolutionCapable": True,
-        "LSMinimumSystemVersion": "12.0",
-    },
 )
