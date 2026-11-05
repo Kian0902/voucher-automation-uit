@@ -54,11 +54,6 @@ function currentReport() {
   return null;
 }
 
-// esc() covers text; an attribute value also needs its quotes escaped
-function escAttr(value) {
-  return esc(value).replace(/"/g, "&quot;");
-}
-
 function showError(text) {
   errorBanner.textContent = text;
   errorBanner.hidden = false;

@@ -9,7 +9,8 @@ The pages are plain HTML files in app/pages/, one per sidebar entry, served by p
 the stylesheet and the scripts in app/static/. Every run, finished or failed, appends a record
 to output/runs.jsonl for the dashboard (app/api_dashboard.py). The knowledge base page edits
 the three report CSVs in place and reloads the lookups (app/api_knowledge.py). The settings
-page edits the config file; its changes apply at the next start (app/api_settings.py).
+page edits the config file; its changes apply at the next start (app/api_settings.py). The
+batch page queues many files and runs them one at a time through the same run (app/api_batch.py).
 
 Paths resolve from APP_ROOT: the repo root in development, the folder next to the executable
 when packaged. Configuration comes from config.env in that folder when it exists, else from
@@ -18,6 +19,7 @@ when packaged. Configuration comes from config.env in that folder when it exists
 
 import copy
 import json
+import os
 import re
 import sys
 import tempfile
@@ -67,14 +69,56 @@ sys.path.insert(0, str(APP_ROOT / "src"))
 sys.path.insert(0, str(APP_DIR))
 
 # the model keys must be in the environment before main.py is imported, since it reads them at import
+SETTING_KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY"]
+CONFIG_TEMPLATE = (
+    "# Fakturaassistent: innstillinger. Filen ligger ved siden av Fakturaassistent.app.\n"
+    "# Fyll inn verdiene mellom anførselstegnene, eller bruk Innstillinger i appen.\n"
+    'API_URL=""\n'
+    'API_MODEL=""\n'
+    'API_KEY=""\n'
+    'MISTRAL_API_KEY=""\n'
+)
+# an address that points nowhere on this Mac: a run with missing settings fails at once and
+# can never send invoice data to a server nobody chose
+MISSING_URL = "http://127.0.0.1:9/v1"
+MISSING_VALUE = "mangler"
+
 CONFIG_FILE = APP_ROOT / "config.env"
+DEV_CONFIG_FILE = APP_ROOT / ".env.local"
+if not CONFIG_FILE.is_file() and DEV_CONFIG_FILE.is_file():
+    CONFIG_FILE = DEV_CONFIG_FILE
 if not CONFIG_FILE.is_file():
-    CONFIG_FILE = APP_ROOT / ".env.local"
+    # first start next to the app: the staff fill the file in, or use the settings page
+    try:
+        CONFIG_FILE.write_text(CONFIG_TEMPLATE, encoding="utf-8")
+    except OSError:
+        pass
 load_dotenv(CONFIG_FILE)
+
+# what the app started with, for the settings page; a blank setting gets a placeholder so the
+# agents can be imported and the app starts, and the pages say which settings are missing
+STARTED_VALUES = {}
+SETTINGS_MISSING = []
+for setting_key in SETTING_KEYS:
+    setting_value = os.environ.get(setting_key, "")
+    if setting_value == "":
+        STARTED_VALUES[setting_key] = None
+        SETTINGS_MISSING.append(setting_key)
+        if setting_key == "API_URL":
+            os.environ[setting_key] = MISSING_URL
+        else:
+            os.environ[setting_key] = MISSING_VALUE
+    else:
+        STARTED_VALUES[setting_key] = setting_value
 
 APP_TITLE = "Fakturaassistent"
 REPORTS_DIR = APP_ROOT / "data" / "koststed_tables"
 OUTPUT_DIR = APP_ROOT / "output"
+# the folder the staff drop the three CSVs into exists from the first start
+try:
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    pass
 
 from langchain_core.messages import HumanMessage
 
@@ -99,7 +143,7 @@ api_knowledge.REPORTS_DIR = REPORTS_DIR
 
 import api_settings
 api_settings.CONFIG_FILE = CONFIG_FILE
-api_settings.STARTED_WITH = api_settings.current_environment()
+api_settings.STARTED_WITH = STARTED_VALUES
 api_settings.FOLDERS = [
     ("Appens mappe", APP_ROOT),
     ("Innstillinger", CONFIG_FILE),
@@ -107,6 +151,8 @@ api_settings.FOLDERS = [
     ("Logger", run_log.LOGS_DIR),
     ("Resultater", OUTPUT_DIR),
 ]
+
+import api_batch
 
 
 # the app owns the terminal, so the run logs stay quiet; full logs still go to logs/
@@ -119,6 +165,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(api_dashboard.router)
 app.include_router(api_knowledge.router)
 app.include_router(api_settings.router)
+app.include_router(api_batch.router)
 
 
 # the reports are loaded at start and again after the knowledge base changed a file; a failure
@@ -212,6 +259,7 @@ _IDLE_STATE = {
     "rows": [],         # list runs: one entry per row of the screenshot
     "rows_done": 0,
     "saved": [],        # the files written by a list run
+    "stop_requested": False,  # the staff pressed stop; the run ends after the current step
 }
 
 STATE = copy.deepcopy(_IDLE_STATE)
@@ -232,17 +280,49 @@ def _run_is_active() -> bool:
 
 api_knowledge.run_is_active = _run_is_active
 
+# Every run gets a number, and the worker thread carries it. A stop ends the run on the page at
+# once; the worker is left to finish its current model call and then finds that its run is no
+# longer current and writes nothing. One late step of an abandoned worker may still land in the
+# shared run log of the next run; the page and the records never see it.
+RUN_ID = 0
+RUN_STARTED_AT = None
+WORKER = threading.local()
+
+
+def _worker_run_is_current() -> bool:
+    """
+    Whether the calling worker thread belongs to the run on the page.
+
+    Returns:
+        bool: True when the thread's run id is the current one.
+    """
+
+    return getattr(WORKER, "run_id", None) == RUN_ID
+
+
+def _worker_owns_state() -> bool:
+    """
+    Whether the calling worker thread may still change the run on the page.
+
+    Returns:
+        bool: True when its run is current and nobody stopped it.
+    """
+
+    return _worker_run_is_current() and STATE["status"] == "running"
+
 
 def _set_stage(stage_key: str, stage_status: str, verdict=None) -> None:
     """
-    Update one stage of the diagram.
+    Update one stage of the diagram; nothing happens for a worker whose run was stopped.
 
     Args:
         stage_key (str): The stage's key, for example "identify" or "ocr".
-        stage_status (str): "pending", "active", "done" or "skipped".
+        stage_status (str): "pending", "active", "done", "failed", "stopped" or "skipped".
         verdict (str | None): Verdict line under the stage, kept as is when None.
     """
 
+    if not _worker_owns_state():
+        return
     with STATE_LOCK:
         for stage in STATE["stages"]:
             if stage["key"] == stage_key:
@@ -251,7 +331,7 @@ def _set_stage(stage_key: str, stage_status: str, verdict=None) -> None:
                     stage["verdict"] = verdict
 
 
-def _reset_state(filename: str, kind: str, stage_plan: list) -> None:
+def _reset_state(filename: str, kind: str, stage_plan: list) -> int:
     """
     Reset STATE for a new run.
 
@@ -259,9 +339,14 @@ def _reset_state(filename: str, kind: str, stage_plan: list) -> None:
         filename (str): Display name of the uploaded file.
         kind (str): "faktura" or "liste".
         stage_plan (list): INVOICE_STAGES or LIST_STAGES.
+
+    Returns:
+        int: The new run's id, for the worker thread.
     """
 
-    global STATE
+    global STATE, RUN_ID, RUN_STARTED_AT
+    RUN_ID = RUN_ID + 1
+    RUN_STARTED_AT = time.perf_counter()
     stages = []
     for key, title, description in stage_plan:
         stages.append({"key": key, "title": title, "description": description, "status": "pending", "verdict": ""})
@@ -275,6 +360,7 @@ def _reset_state(filename: str, kind: str, stage_plan: list) -> None:
         STATE["stages"][0]["status"] = "done"
         STATE["stages"][0]["verdict"] = filename
         STATE["stages"][1]["status"] = "active"
+    return RUN_ID
 
 
 def _fail_run(message: str) -> None:
@@ -285,10 +371,130 @@ def _fail_run(message: str) -> None:
         message (str): The Norwegian error text.
     """
 
+    if not _worker_owns_state():
+        return
     with STATE_LOCK:
         STATE["status"] = "error"
         STATE["error"] = message
+        _close_open_work("failed", "Feilet")
     _record_run("error", message)
+
+
+def _close_open_work(stage_status: str, verdict: str) -> None:
+    """
+    Settle everything still marked active when a run ends early; the caller holds STATE_LOCK.
+
+    The active stage gets the given status and verdict, pending stages are skipped, and a
+    lookup without an outcome is marked interrupted, so nothing on the page keeps moving.
+
+    Args:
+        stage_status (str): "failed" or "stopped".
+        verdict (str): The line under the stage.
+    """
+
+    for stage in STATE["stages"]:
+        if stage["status"] == "active":
+            stage["status"] = stage_status
+            stage["verdict"] = verdict
+        elif stage["status"] == "pending":
+            stage["status"] = "skipped"
+    for lookup in STATE["lookups"]:
+        if lookup["outcome"] is None:
+            lookup["outcome"] = "avbrutt"
+
+
+def _stop_run() -> None:
+    """
+    End the run on the page at once because the staff pressed stop.
+
+    Called from the request, not from the worker. What was finished stays on the page and goes
+    into the record; the worker thread finds its run stopped at its next check.
+    """
+
+    with STATE_LOCK:
+        STATE["status"] = "stopped"
+        STATE["stop_requested"] = True
+        STATE["duration_seconds"] = time.perf_counter() - RUN_STARTED_AT
+        _close_open_work("stopped", "Stoppet")
+    _record_run("stopped", None)
+
+
+def _explain_error(error: Exception) -> str:
+    """
+    The error of a failed run as one plain sentence, with the technical text after it.
+
+    Network failures, a refused key and an unknown address or model are named, since those are
+    the cases the staff can fix themselves. Everything else is reported as it is.
+
+    Args:
+        error (Exception): What the run raised.
+
+    Returns:
+        str: The Norwegian message for the banner and the run record.
+    """
+
+    with STATE_LOCK:
+        active_stage = None
+        for stage in STATE["stages"]:
+            if stage["status"] == "active":
+                active_stage = stage["key"]
+    if active_stage == "ocr":
+        service = "Mistral OCR"
+    else:
+        service = "modellserveren"
+    service_first = service[0].upper() + service[1:]
+
+    class_names = []
+    for error_class in type(error).__mro__:
+        class_names.append(error_class.__name__)
+    text = str(error).lower()
+
+    network_classes = ["APIConnectionError", "APITimeoutError", "ConnectError", "ConnectionError",
+                       "TimeoutError", "gaierror", "ConnectTimeout", "ReadTimeout"]
+    network_words = ["nodename nor servname", "name or service not known", "connection refused",
+                     "timed out", "timeout", "network is unreachable", "connection error",
+                     "connection reset", "getaddrinfo"]
+    is_network = False
+    for class_name in network_classes:
+        if class_name in class_names:
+            is_network = True
+    for word in network_words:
+        if word in text:
+            is_network = True
+
+    if is_network:
+        plain = (f"Fikk ikke kontakt med {service}. Sjekk nettverk og VPN, og adressen under "
+                 f"Innstillinger, og prøv igjen.")
+    elif "AuthenticationError" in class_names or "401" in text or "unauthorized" in text:
+        plain = f"Nøkkelen til {service} ble avvist. Sjekk nøkkelen under Innstillinger."
+    elif "NotFoundError" in class_names or "404" in text:
+        plain = (f"{service_first} svarte at adressen eller modellen ikke finnes. "
+                 f"Sjekk adresse og modell under Innstillinger.")
+    else:
+        return f"Kjøringen feilet: {error}"
+    return f"{plain} (Teknisk: {error})"
+
+
+def _model_failure_reason() -> str:
+    """
+    Why the invoice agent's last model call gave no usable answer, for the page.
+
+    The call wrapper in src/main.py logs a cut-off generation and a reply that failed the
+    schema as a parsing error on the step; everything else is a plain "no conclusion".
+
+    Returns:
+        str: A short Norwegian reason.
+    """
+
+    last_error = None
+    for step in agent_main.run_log.steps:
+        if step.kind == "llm" and step.parsing_error is not None:
+            last_error = step.parsing_error
+    if last_error is None:
+        return "Modellen ga ingen konklusjon"
+    if "token cap" in last_error:
+        return "Modellens svar ble for langt og avbrutt"
+    return "Modellens svar kunne ikke tolkes"
 
 
 def _invoice_result(problems: list) -> str:
@@ -463,7 +669,7 @@ def _apply_identify_update(delta: dict) -> None:
     problems = delta["problems"]
 
     if problems is None:
-        _set_stage("identify", "done", "Modellen ga ikke et gyldig svar")
+        _set_stage("identify", "failed", _model_failure_reason())
         _set_stage("classify", "skipped")
         _set_stage("resolve", "skipped")
         return
@@ -649,6 +855,9 @@ def _finalize_invoice_run(labeled_problems, resolutions) -> None:
         resolutions: The final Resolution list, or None.
     """
 
+    if not _worker_owns_state():
+        return
+
     # a lookup the loop never executed (the cap stopped it) must not look active
     with STATE_LOCK:
         for lookup in STATE["lookups"]:
@@ -661,8 +870,15 @@ def _finalize_invoice_run(labeled_problems, resolutions) -> None:
             for stage in STATE["stages"]:
                 if stage["key"] == "resolve":
                     resolve_status = stage["status"]
+        reason = _model_failure_reason()
         if resolve_status == "active":
-            _set_stage("resolve", "done", "Modellen ga ingen konklusjon")
+            _set_stage("resolve", "failed", reason)
+        # the rows stay on the page as open problems instead of blank cells
+        with STATE_LOCK:
+            for row in STATE["problems"]:
+                if row["status"] == "":
+                    row["status"] = "uløst"
+                    row["why"] = reason + ". Prøv igjen, eller slå opp manuelt."
     else:
         resolved_count = _fill_resolution_rows(resolutions)
         total_count = len(resolutions)
@@ -678,18 +894,21 @@ def _finalize_invoice_run(labeled_problems, resolutions) -> None:
     _record_run("done", None)
 
 
-def _run_invoice(xml_bytes: bytes, filename: str) -> None:
+def _run_invoice(xml_bytes: bytes, filename: str, run_id: int) -> None:
     """
     Run the invoice agent on one uploaded XML and update STATE live.
 
     Runs in a background thread. Every graph update is translated to stage statuses, verdicts
-    and lookup lines the page can show.
+    and lookup lines the page can show. After a stop the thread finishes its current model
+    call, finds its run gone and ends without touching the page.
 
     Args:
         xml_bytes (bytes): The uploaded XML file content.
         filename (str): The original filename, used for display and the sanitized source_file.
+        run_id (int): The run this thread belongs to.
     """
 
+    WORKER.run_id = run_id
     try:
         invoice = _parse_uploaded_xml(xml_bytes)
         _sanitize_source_file(invoice, filename)
@@ -721,6 +940,8 @@ def _run_invoice(xml_bytes: bytes, filename: str) -> None:
         resolutions = None
 
         for update in agent_main.agent.stream(initial_state, stream_mode="updates"):
+            if not _worker_owns_state():
+                break
             if "identify_problems" in update:
                 _apply_identify_update(update["identify_problems"])
             if "classify_problems" in update:
@@ -733,7 +954,7 @@ def _run_invoice(xml_bytes: bytes, filename: str) -> None:
         _finalize_invoice_run(labeled_problems, resolutions)
 
     except Exception as error:
-        _fail_run(f"Kjøringen feilet: {error}")
+        _fail_run(_explain_error(error))
 
 
 # LIST RUNS
@@ -807,12 +1028,17 @@ def _resolve_rows(erp_list: dict) -> dict:
     }
 
     for index, row in enumerate(erp_list["rows"]):
+        if not _worker_owns_state():
+            break
         with STATE_LOCK:
             STATE["rows"][index]["status"] = "active"
 
         resolved_row = list_agent.resolve_one_row(row, erp_list["source_file"])
         resolved_list["rows"].append(resolved_row)
 
+        # a row that finished after a stop still counts, as long as the run is the one on the page
+        if not _worker_run_is_current():
+            break
         with STATE_LOCK:
             page_row = STATE["rows"][index]
             page_row["funnet_koststed"] = resolved_row["funnet_koststed"]
@@ -857,17 +1083,20 @@ def _save_list_outputs(raw_response: dict, resolved_list: dict, filename: str) -
     return [ocr_path, json_path, csv_path]
 
 
-def _run_list(image_bytes: bytes, filename: str) -> None:
+def _run_list(image_bytes: bytes, filename: str, run_id: int) -> None:
     """
     OCR, parse and resolve one uploaded screenshot and update STATE live.
 
-    Runs in a background thread.
+    Runs in a background thread. After a stop the thread finishes the row in progress, saves
+    the rows that were done and ends.
 
     Args:
         image_bytes (bytes): The uploaded PNG.
         filename (str): The original filename, for display and the output names.
+        run_id (int): The run this thread belongs to.
     """
 
+    WORKER.run_id = run_id
     started = time.perf_counter()
     try:
         raw_response = _ocr_screenshot(image_bytes)
@@ -882,6 +1111,8 @@ def _run_list(image_bytes: bytes, filename: str) -> None:
             _fail_run(f"Tabellen i skjermbildet kunne ikke tolkes: {error}")
             return
 
+        if not _worker_owns_state():
+            return
         page_rows = []
         for row in erp_list["rows"]:
             page_rows.append(_row_for_page(row))
@@ -897,6 +1128,14 @@ def _run_list(image_bytes: bytes, filename: str) -> None:
         _set_stage("resolve", "active")
 
         resolved_list = _resolve_rows(erp_list)
+
+        if not _worker_owns_state():
+            # stopped by the staff: the finished rows are saved for the run still on the page
+            if _worker_run_is_current() and len(resolved_list["rows"]) > 0:
+                saved_paths = _save_list_outputs(raw_response, resolved_list, filename)
+                with STATE_LOCK:
+                    STATE["saved"] = [str(path) for path in saved_paths]
+            return
 
         label_counts = {}
         for resolved_row in resolved_list["rows"]:
@@ -914,7 +1153,7 @@ def _run_list(image_bytes: bytes, filename: str) -> None:
         _record_run("done", None)
 
     except Exception as error:
-        _fail_run(f"Kjøringen feilet: {error}")
+        _fail_run(_explain_error(error))
 
 
 # ROUTES
@@ -948,6 +1187,13 @@ def agents_page() -> HTMLResponse:
     return _page("agents")
 
 
+@app.get("/batch")
+def batch_page() -> HTMLResponse:
+    """The batch page: a queue of files processed one at a time."""
+
+    return _page("batch")
+
+
 @app.get("/knowledge")
 def knowledge_page() -> HTMLResponse:
     """The knowledge base: the three reports."""
@@ -974,7 +1220,42 @@ def status() -> dict:
     with STATE_LOCK:
         snapshot = copy.deepcopy(STATE)
     snapshot["data_error"] = DATA_ERROR
+    snapshot["settings_missing"] = SETTINGS_MISSING
+    snapshot["run_id"] = RUN_ID
     return snapshot
+
+
+def _stop_if_running() -> bool:
+    """
+    Stop the run in progress at once, for the stop buttons of the agent page and the batch page.
+
+    Returns:
+        bool: True when a run was stopped, False when nothing ran.
+    """
+
+    with STATE_LOCK:
+        running = STATE["status"] == "running"
+    if not running:
+        return False
+    _stop_run()
+    return True
+
+
+@app.post("/stop")
+def stop():
+    """
+    Stop the running run at once.
+
+    The page settles immediately; the worker thread is abandoned and ends quietly after its
+    current step. A new run can start right away.
+
+    Returns:
+        A confirmation, or 409 when nothing runs.
+    """
+
+    if not _stop_if_running():
+        return JSONResponse({"message": "Ingen kjøring pågår"}, status_code=409)
+    return {"message": "Kjøringen er stoppet"}
 
 
 @app.get("/search")
@@ -1019,13 +1300,72 @@ def search(query: str):
     return {"kind": "person", "query": stripped_query, "result": result}
 
 
+# one run starts at a time, whether it comes from the agent page or from the batch queue
+RUN_START_LOCK = threading.Lock()
+
+
+def _start_run(file_bytes: bytes, filename: str):
+    """
+    Start a run on one file in a background thread: an XML invoice or a PNG screenshot.
+
+    Used by the agent page for a single file and by the batch queue for each of its files, so
+    both pass the same checks. The file type is read from the filename's extension.
+
+    Args:
+        file_bytes (bytes): The file content.
+        filename (str): The original filename.
+
+    Returns:
+        tuple[int | None, tuple[str, int] | None]: The run id, or the Norwegian message and the
+        HTTP status code when the run could not start.
+    """
+
+    suffix = Path(filename).suffix.lower()
+    with RUN_START_LOCK:
+        with STATE_LOCK:
+            already_running = STATE["status"] == "running"
+        if already_running:
+            return None, ("En kjøring pågår allerede, vent til den er ferdig", 409)
+        if DATA_ERROR is not None:
+            return None, (DATA_ERROR, 503)
+        if len(file_bytes) == 0:
+            return None, ("Ingen fil mottatt", 400)
+
+        if suffix == ".xml":
+            run_id = _reset_state(filename, "faktura", INVOICE_STAGES)
+            worker = threading.Thread(target=_run_invoice, args=(file_bytes, filename, run_id), daemon=True)
+        elif suffix == ".png":
+            run_id = _reset_state(filename, "liste", LIST_STAGES)
+            worker = threading.Thread(target=_run_list, args=(file_bytes, filename, run_id), daemon=True)
+        else:
+            return None, ("Filtypen støttes ikke. Slipp en XML-faktura eller et PNG-skjermbilde av listen", 400)
+        worker.start()
+    return run_id, None
+
+
+def _read_run_state():
+    """
+    The run on the page right now, for the batch queue.
+
+    Returns:
+        tuple[int, dict]: The run id and a copy of STATE.
+    """
+
+    with STATE_LOCK:
+        return RUN_ID, copy.deepcopy(STATE)
+
+
+api_batch.start_run = _start_run
+api_batch.read_state = _read_run_state
+api_batch.stop_run = _stop_if_running
+
+
 @app.post("/run")
 async def run(request: Request, filename: str = "fil"):
     """
     Start a run on an uploaded file: an XML invoice or a PNG screenshot of the list.
 
-    The file type is read from the filename's extension. The run happens in a background
-    thread; the page follows it through /status.
+    The run happens in a background thread; the page follows it through /status.
 
     Args:
         request (Request): The request whose body is the raw file.
@@ -1035,35 +1375,11 @@ async def run(request: Request, filename: str = "fil"):
         A confirmation, or an error message with a fitting status code.
     """
 
-    with STATE_LOCK:
-        already_running = STATE["status"] == "running"
-    if already_running:
-        return JSONResponse(
-            {"message": "En kjøring pågår allerede, vent til den er ferdig"},
-            status_code=409,
-        )
-
-    if DATA_ERROR is not None:
-        return JSONResponse({"message": DATA_ERROR}, status_code=503)
-
     file_bytes = await request.body()
-    if len(file_bytes) == 0:
-        return JSONResponse({"message": "Ingen fil mottatt"}, status_code=400)
-
-    suffix = Path(filename).suffix.lower()
-    if suffix == ".xml":
-        _reset_state(filename, "faktura", INVOICE_STAGES)
-        worker = threading.Thread(target=_run_invoice, args=(file_bytes, filename), daemon=True)
-    elif suffix == ".png":
-        _reset_state(filename, "liste", LIST_STAGES)
-        worker = threading.Thread(target=_run_list, args=(file_bytes, filename), daemon=True)
-    else:
-        return JSONResponse(
-            {"message": "Filtypen støttes ikke. Slipp en XML-faktura eller et PNG-skjermbilde av listen"},
-            status_code=400,
-        )
-
-    worker.start()
+    run_id, problem = _start_run(file_bytes, filename)
+    if run_id is None:
+        message, status_code = problem
+        return JSONResponse({"message": message}, status_code=status_code)
     return {"message": "startet"}
 
 

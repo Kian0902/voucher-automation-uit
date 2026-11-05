@@ -2570,7 +2570,7 @@
 		</data>
 		<key>Resources/base_library.zip</key>
 		<data>
-		DYLaPXH0uvKaw373sgQ+CAhbmHU=
+		jpj9PDPQ38QYxBt2c462HiI5Grs=
 		</data>
 		<key>Resources/certifi/cacert.pem</key>
 		<data>
@@ -2722,7 +2722,11 @@
 		</data>
 		<key>Resources/pages/agents.html</key>
 		<data>
-		zXQkW/UuC5p2H31enVzGvqopQZk=
+		EerasuT9dlzkzaDfU/aahpV3dgw=
+		</data>
+		<key>Resources/pages/batch.html</key>
+		<data>
+		IkmJSc8kzi3qTjusepafNb9qXiM=
 		</data>
 		<key>Resources/pages/dashboard.html</key>
 		<data>
@@ -2766,19 +2770,23 @@
 		</data>
 		<key>Resources/static/agents.js</key>
 		<data>
-		JxjueqEAeEl3COCOuS10OXM9ZYE=
+		n3w8oND2/YYpWEHlL780Nk8p+Yo=
 		</data>
 		<key>Resources/static/app.css</key>
 		<data>
-		oHMdTO/oKpp0XRCw1/MWwacPnBM=
+		/0hG5z0d0NacmyEORYpx9xGwWpo=
+		</data>
+		<key>Resources/static/batch.js</key>
+		<data>
+		S5o/sx1w7uGHkmICzwReWrP7D3Y=
 		</data>
 		<key>Resources/static/dashboard.js</key>
 		<data>
-		+mJ6nnM7WGVLsYJeQJ6F22kgP6A=
+		K6FbHWA61I8R/ngHDa8yRq4MYXA=
 		</data>
 		<key>Resources/static/knowledge.js</key>
 		<data>
-		zkJYEyyAQhY8UdUzNKdIE7dlbis=
+		fC4iZXVYJXDPsiOwecOe02ik4JI=
 		</data>
 		<key>Resources/static/settings.js</key>
 		<data>
@@ -2786,7 +2794,7 @@
 		</data>
 		<key>Resources/static/shell.js</key>
 		<data>
-		I3sSIXw/o4hcOINlOYFE3bHGZEE=
+		9gIckdaW5oV+shNNIaS4uWTy3+E=
 		</data>
 		<key>Resources/tqdm-4.70.0.dist-info/INSTALLER</key>
 		<data>
@@ -8806,7 +8814,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			iI7YleKJbF75c4etGNY5n5mHhK2bDtK5AVZTSUGBwuw=
+			j8bUuYDsM7OKnacnePY4fNY6jCgJTCAthmogSynLDyM=
 			</data>
 		</dict>
 		<key>Resources/certifi/cacert.pem</key>
@@ -9257,7 +9265,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			DZtDavE43XU75T4JwecPd5vSDf91H5STyFYfRRI4AlQ=
+			I5EK4bvd3q7tlDNd+GPuCLIAXkiKats4iNAWt+/DifE=
+			</data>
+		</dict>
+		<key>Resources/pages/batch.html</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			IFS0w4IdNUpQ18JQhilmG1KNkRK2OaN2yLMSbRNRgNo=
 			</data>
 		</dict>
 		<key>Resources/pages/dashboard.html</key>
@@ -9354,28 +9369,35 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			bMutrzr0TSyRU2cfdE24MIcx4slR5w/97FxI+1Tzi5w=
+			+Szc1ubI6MQy416lKgayFZRFEg7k51OJd+N3wtIfwK0=
 			</data>
 		</dict>
 		<key>Resources/static/app.css</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			gdhkmLZEdgIRt4UHoFZeDKklDIG9KMBftsPVTiTdPCo=
+			QAcowVuN1DMKSMwe+QU9zN47/w18tcGb6fbT93jREq0=
+			</data>
+		</dict>
+		<key>Resources/static/batch.js</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			B9rZEUUdnEQ6YXFgEuc/LvKZNLxKfkW0Yd/53m72gQ8=
 			</data>
 		</dict>
 		<key>Resources/static/dashboard.js</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			B3HkXyVCdlGWzfBxo8oj5OzK2cz6GTvBJ8KOAg4h1m4=
+			p+FvuRzbgqrRWwg6qW5QNmB8JvRlh26sjpGlzvp0Z4k=
 			</data>
 		</dict>
 		<key>Resources/static/knowledge.js</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			DOZHGUA7o6QXzv6u30IO5pMpCUpVeREG5ZggUDZYCwA=
+			L4g2gFO7BOFweEtu7fHADVNDyYotrxUHjMt7BR6jLJg=
 			</data>
 		</dict>
 		<key>Resources/static/settings.js</key>
@@ -9389,7 +9411,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			FnqAJ7issaB1/mSm9Rdpa5Riddn+D8Cyof/k0OIiW1I=
+			Aw2MgWEILIBMXN3xssBVfYrYxtglXc1Hm90vOeKl4LY=
 			</data>
 		</dict>
 		<key>Resources/tiktoken</key>

@@ -69,6 +69,8 @@ Example 2 - scanned invoice:
   an invoice is a duplicate or that a supplier is unregistered. Whether a correctly formatted IO is
   actually known to Unit4 is checked against the order report in a later stage, not by you
 - Keep the private 'thinking' short. A few sentences is enough, never repeat yourself
+- Write 'problem' and 'why' in Norwegian (bokmål), short and plain, for the caseworker. Field names
+  and values stay exactly as they are
 """
 
 
@@ -110,6 +112,8 @@ and return every one of them, never merge, split, drop or add problems.
 - Do not re-judge whether something is a problem. Your input is the finding; you only label it
 - Do not invent problems that are not in your input. If the input list is empty, return an empty list
 - Keep the private 'thinking' short. A few sentences is enough, never repeat yourself
+- Write 'problem' and 'why' in Norwegian (bokmål), short and plain, for the caseworker. Field names
+  and values stay exactly as they are
 """
 
 
@@ -165,6 +169,8 @@ up. While you are still looking things up, leave 'resolutions' empty. When you a
   confirm.
 - When nothing could be resolved, say so plainly in 'why', an honest unresolved is better than a guess.
 - Keep the private 'thinking' short. A few sentences per step is enough, never repeat yourself.
+- Write the free-text fields ('why', 'summary') in Norwegian (bokmål), short and plain, for the
+  caseworker. Names, IOs and koststed codes stay exactly as the tool results give them.
 """
 
 
@@ -280,4 +286,6 @@ set tool to "none" and fill them.
 - 'summary' is one sentence of at most 20 words for the overview sheet: what was found and from
   which lookup, or why nothing could be found. Name the evidence, not your reasoning steps.
 - Keep the private 'thinking' short. A few sentences per step is enough, never repeat yourself.
+- Write the free-text fields ('why', 'summary') in Norwegian (bokmål), short and plain, for the
+  caseworker. Names, IOs and koststed codes stay exactly as the tool results give them.
 """

@@ -4,7 +4,19 @@
 var dropzone = document.getElementById("dropzone");
 var fileInput = document.getElementById("file-input");
 var errorBanner = document.getElementById("error-banner");
+var stopButton = document.getElementById("stop-button");
+var stopBanner = document.getElementById("stop-banner");
+var settingsNote = document.getElementById("settings-note");
 var lastUploadErrorAt = 0;
+
+stopButton.addEventListener("click", async function () {
+  stopButton.disabled = true;
+  try {
+    await fetchJson("/stop", { method: "POST" });
+  } catch (error) {
+    showError(error.message);
+  }
+});
 
 dropzone.addEventListener("click", function () { fileInput.click(); });
 
@@ -71,7 +83,7 @@ function renderPersons(persons) {
     var person = persons[i];
     items.push(
       "<li><strong>" + esc(person.name) + "</strong><br>"
-      + esc(person.koststed) + " " + esc(person.koststed_name) + "</li>"
+      + esc(person.koststed) + " " + esc(person.koststed_name) + copyButton(person.koststed) + "</li>"
     );
   }
   return '<ul class="person-list">' + items.join("") + "</ul>";
@@ -82,7 +94,7 @@ function renderSearch(data) {
     var io = data.result;
     var parts = ['<div class="search-kind">IO ' + esc(data.query) + "</div>"];
     if (io.status === "found") {
-      parts.push('<div class="search-main">' + esc(io.koststed) + "</div>");
+      parts.push('<div class="search-main">' + esc(io.koststed) + copyButton(io.koststed) + "</div>");
       parts.push('<div class="search-sub">' + esc(io.koststed_name) + "</div>");
     } else if (io.status === "found_unknown_koststed") {
       parts.push('<div class="search-sub">IO-en finnes, men rapport B mangler koststedet</div>');
@@ -103,7 +115,7 @@ function renderSearch(data) {
       parts.push('<div class="search-sub">' + data.ios.count + " innkjøpsordrer på koststedet:</div>");
       var items = [];
       for (var i = 0; i < data.ios.ios.length; i++) {
-        items.push("<li>" + esc(data.ios.ios[i]) + "</li>");
+        items.push("<li>" + esc(data.ios.ios[i]) + copyButton(data.ios.ios[i]) + "</li>");
       }
       parts.push('<ul class="io-list">' + items.join("") + "</ul>");
     } else {
@@ -138,28 +150,15 @@ function renderSearch(data) {
   return '<div class="search-sub">' + esc(data.note) + "</div>";
 }
 
-function badgeFor(label) {
-  if (label === "løst") {
-    return '<span class="badge badge-ok">Løst</span>';
-  }
-  if (label === "må bekreftes") {
-    return '<span class="badge badge-confirm">Må bekreftes</span>';
-  }
-  if (label === "flere funnet") {
-    return '<span class="badge badge-confirm">Flere funnet</span>';
-  }
-  if (label === "uløst") {
-    return '<span class="badge badge-open">Uløst</span>';
-  }
-  return "";
-}
-
 function renderStatusLine(state) {
   var line = document.getElementById("status-line");
+  line.className = state.status;
   if (state.status === "idle") {
     line.textContent = "Venter på fil";
   } else if (state.status === "running") {
-    if (state.kind === "liste" && state.rows.length > 0) {
+    if (state.stop_requested) {
+      line.textContent = "Stopper ...";
+    } else if (state.kind === "liste" && state.rows.length > 0) {
       line.textContent = "Behandler " + state.filename + ": rad " + Math.min(state.rows_done + 1, state.rows.length)
         + " av " + state.rows.length;
     } else {
@@ -167,8 +166,10 @@ function renderStatusLine(state) {
     }
   } else if (state.status === "done") {
     line.textContent = "Ferdig på " + Math.round(state.duration_seconds) + " sekunder";
+  } else if (state.status === "stopped") {
+    line.textContent = "Stoppet";
   } else if (state.status === "error") {
-    line.textContent = "Noe gikk galt";
+    line.textContent = "Stoppet med feil";
   }
 }
 
@@ -234,7 +235,7 @@ function renderProblems(state) {
 
     var suggestionCell = "";
     if (row.suggestion !== "") {
-      suggestionCell = '<div class="suggestion-value">' + esc(row.suggestion) + "</div>";
+      suggestionCell = '<div class="suggestion-value">' + esc(row.suggestion) + copyButton(row.suggestion) + "</div>";
     }
     if (row.why !== "") {
       suggestionCell = suggestionCell + '<div class="small">' + esc(row.why) + "</div>";
@@ -277,12 +278,18 @@ function renderListRows(state) {
     var row = state.rows[i];
 
     var koststedCell = "";
-    if (row.funnet_koststed.length > 0) {
-      koststedCell = '<div class="koststed-value">' + esc(row.funnet_koststed.join(", ")) + "</div>";
+    for (var k = 0; k < row.funnet_koststed.length; k++) {
+      koststedCell = koststedCell + '<div class="koststed-value">' + esc(row.funnet_koststed[k])
+        + copyButton(row.funnet_koststed[k]) + "</div>";
     }
 
+    var runEnded = state.status === "error" || state.status === "stopped";
     var statusCell;
-    if (row.status === "pending") {
+    if (row.status === "pending" && runEnded) {
+      statusCell = '<span class="small">ikke behandlet</span>';
+    } else if (row.status === "active" && runEnded) {
+      statusCell = '<span class="small">avbrutt</span>';
+    } else if (row.status === "pending") {
       statusCell = '<span class="small">venter</span>';
     } else if (row.status === "active") {
       statusCell = "<em>pågår ...</em>";
@@ -315,9 +322,9 @@ function renderListRows(state) {
   }
 }
 
-function render(state) {
-  renderStatusLine(state);
+var lastStateJson = null;
 
+function render(state) {
   // the error banner shows data and run errors, and upload errors for a few seconds
   if (state.data_error) {
     errorBanner.textContent = state.data_error;
@@ -327,6 +334,36 @@ function render(state) {
     errorBanner.hidden = false;
   } else if (Date.now() - lastUploadErrorAt > 5000) {
     errorBanner.hidden = true;
+  }
+
+  // the page is rebuilt only when the run state changed, so a button under the mouse stays put
+  var stateJson = JSON.stringify(state);
+  if (stateJson === lastStateJson) {
+    return;
+  }
+  lastStateJson = stateJson;
+
+  renderStatusLine(state);
+  stopButton.hidden = state.status !== "running";
+  stopButton.disabled = state.stop_requested === true;
+
+  if (state.status === "stopped") {
+    var stopText = "Kjøringen ble stoppet. Det som var ferdig, står på siden";
+    if (state.saved.length > 0) {
+      stopText = stopText + " og er lagret";
+    }
+    stopBanner.textContent = stopText + ".";
+    stopBanner.hidden = false;
+  } else {
+    stopBanner.hidden = true;
+  }
+
+  if (state.settings_missing && state.settings_missing.length > 0) {
+    settingsNote.textContent = "Innstillinger mangler: " + state.settings_missing.join(", ")
+      + ". Fyll dem inn under Innstillinger og start appen på nytt.";
+    settingsNote.hidden = false;
+  } else {
+    settingsNote.hidden = true;
   }
 
   renderPipeline(state);

@@ -44,10 +44,10 @@ class Problem(BaseModel):
     One identified problem with the invoice.
     """
 
-    problem: str = Field(description="One-line statement of the problem")
+    problem: str = Field(description="One-line statement of the problem, in Norwegian")
     field: str = Field(description="The JSON field name the problem concerns")
     value: str = Field(description="The extracted value, or 'missing'")
-    why: str = Field(description="One line on why this is a problem")
+    why: str = Field(description="One line on why this is a problem, in Norwegian")
 
 
 # SCHEMA: Agent output format
@@ -84,7 +84,7 @@ class Resolution(BaseModel):
     resolved: bool = Field(description="True only when a tool result directly supports the suggestion")
     suggestion: str = Field(description="The suggested correction, empty when unresolved")
     source: str = Field(description="The tool result the suggestion comes from, empty when unresolved")
-    why: str = Field(description="One line on how the conclusion was reached")
+    why: str = Field(description="One line on how the conclusion was reached, in Norwegian")
 
 
 class ResolveStep(BaseModel):
@@ -126,7 +126,41 @@ llm_resolver = llm.with_structured_output(ResolveStep, include_raw=True)
 
 
 
+# sent once more when a reply was cut off or did not fit the schema; the facts gathered so far stay
+RETRY_NUDGE = (
+    "Your previous reply was cut off or did not match the required format. Reply again now, "
+    "complete and in the required format. Keep 'thinking' to two sentences at most."
+)
+
+
 def _invoke_with_stats(structured_llm, messages: list, step_name: str):
+    """
+    Invoke a structured LLM, with one retry when the reply is unusable.
+
+    A reply cut at the token cap or one that fails the schema comes back as None from
+    _invoke_once. The call is then repeated once with a short nudge appended, since that
+    failure is nearly always the model rambling, not missing facts. A second failure is
+    reported as None, loud on purpose.
+
+    Args:
+        structured_llm: A with_structured_output(..., include_raw=True) wrapper.
+        messages (list): The messages to send.
+        step_name (str): Log name of the calling step.
+
+    Returns:
+        The parsed response object or None when both attempts failed.
+    """
+
+    response = _invoke_once(structured_llm, messages, step_name)
+    if response is not None:
+        return response
+
+    run_log.note("Reply unusable, retrying once with a nudge")
+    retry_messages = list(messages) + [HumanMessage(content=RETRY_NUDGE)]
+    return _invoke_once(structured_llm, retry_messages, step_name + " (retry)")
+
+
+def _invoke_once(structured_llm, messages: list, step_name: str):
     """
     Invoke a structured LLM and record the call in the run log.
 

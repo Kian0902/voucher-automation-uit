@@ -4,6 +4,7 @@
 var PAGES = [
   { path: "/", title: "Dashbord" },
   { path: "/agents", title: "Agenter" },
+  { path: "/batch", title: "Batchbehandling" },
   { path: "/knowledge", title: "Kunnskapsbase" },
   { path: "/settings", title: "Innstillinger" },
 ];
@@ -55,6 +56,104 @@ function formatDate(isoText) {
   var day = String(date.getDate()).padStart(2, "0");
   var month = String(date.getMonth() + 1).padStart(2, "0");
   return day + "." + month + "." + date.getFullYear();
+}
+
+// COPY BUTTONS, shared by the agent page and the batch page: one click puts a koststed, an IO
+// or a suggestion on the clipboard
+
+var COPIED_FEEDBACK_MS = 1500;
+var copiedValue = null;
+var copiedUntil = 0;
+// inline icons, so the app needs no icon font: two sheets for copy, a check mark for copied
+var COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">'
+  + '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"></rect>'
+  + '<path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"></path></svg>';
+var CHECK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">'
+  + '<path d="M3 8.5l3 3 7-7"></path></svg>';
+
+function escAttr(value) {
+  return esc(value).replace(/"/g, "&quot;");
+}
+
+// the rows are re-rendered on every poll, so the "Kopiert" feedback is kept by value, not by element
+function copyButton(value) {
+  var icon = COPY_ICON;
+  var title = "Kopier";
+  var className = "copy-button";
+  if (value === copiedValue && Date.now() < copiedUntil) {
+    icon = CHECK_ICON;
+    title = "Kopiert";
+    className = className + " copied";
+  }
+  return '<button type="button" class="' + className + '" data-copy="' + escAttr(value) + '" title="' + title
+    + '" aria-label="' + title + '">' + icon + "</button>";
+}
+
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch (error) {
+    // older WebKit: a hidden field and the copy command
+    var field = document.createElement("textarea");
+    field.value = value;
+    field.setAttribute("readonly", "");
+    field.style.position = "fixed";
+    field.style.opacity = "0";
+    document.body.appendChild(field);
+    field.select();
+    var done = false;
+    try {
+      done = document.execCommand("copy");
+    } catch (commandError) {
+      done = false;
+    }
+    document.body.removeChild(field);
+    return done;
+  }
+}
+
+document.addEventListener("click", async function (event) {
+  var button = event.target.closest("button.copy-button");
+  if (button === null) {
+    return;
+  }
+  var value = button.dataset.copy;
+  var done = await copyText(value);
+  if (!done) {
+    button.title = "Kunne ikke kopiere. Marker verdien og kopier manuelt.";
+    button.classList.add("copy-failed");
+    return;
+  }
+  copiedValue = value;
+  copiedUntil = Date.now() + COPIED_FEEDBACK_MS;
+  button.innerHTML = CHECK_ICON;
+  button.title = "Kopiert";
+  button.classList.add("copied");
+  setTimeout(function () {
+    if (button.isConnected) {
+      button.innerHTML = COPY_ICON;
+      button.title = "Kopier";
+      button.classList.remove("copied");
+    }
+  }, COPIED_FEEDBACK_MS);
+});
+
+// the badge of a result label, shared by the pages that show results
+function badgeFor(label) {
+  if (label === "løst") {
+    return '<span class="badge badge-ok">Løst</span>';
+  }
+  if (label === "må bekreftes") {
+    return '<span class="badge badge-confirm">Må bekreftes</span>';
+  }
+  if (label === "flere funnet") {
+    return '<span class="badge badge-confirm">Flere funnet</span>';
+  }
+  if (label === "uløst") {
+    return '<span class="badge badge-open">Uløst</span>';
+  }
+  return "";
 }
 
 function renderSidebar() {

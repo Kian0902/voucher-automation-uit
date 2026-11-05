@@ -10,7 +10,12 @@
 <nav id="sidebar"></nav>
 <main id="content">
   <h1>Agenter</h1>
-  <p id="status-line">Venter på fil</p>
+  <div class="status-row">
+    <p id="status-line">Venter på fil</p>
+    <button id="stop-button" type="button" class="button-danger" hidden>Stopp kjøringen</button>
+  </div>
+  <div id="settings-note" class="lock-note" hidden></div>
+  <div id="stop-banner" class="lock-note" hidden></div>
 
   <div id="layout">
   <div id="left-column">

@@ -58,6 +58,10 @@ h1 { font-size: 1.5rem; margin-bottom: 4px; }
 h2 { font-size: 1.05rem; margin-bottom: 10px; }
 .page-intro { color: #555; margin-bottom: 18px; }
 #status-line { color: #555; margin-bottom: 18px; min-height: 1.3em; }
+#status-line.error { color: #7a2222; font-weight: 600; }
+#status-line.stopped { color: #6b4e00; font-weight: 600; }
+.status-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.status-row #status-line { margin-bottom: 0; }
 
 #error-banner, .error-banner {
   background: #fbe3e3;
@@ -130,6 +134,8 @@ button:disabled { opacity: 0.5; cursor: default; }
   animation: fill 1.4s linear infinite;
 }
 .stage.skipped .stage-box { border-style: dashed; opacity: 0.45; }
+.stage.failed .stage-box { background: #fbe3e3; border-color: #b23a3a; color: #7a2222; }
+.stage.stopped .stage-box { background: #fff6dd; border-color: #e0c270; color: #6b4e00; }
 @keyframes fill {
   from { background-position: 100% 0; }
   to { background-position: 0 0; }
@@ -158,6 +164,19 @@ button:disabled { opacity: 0.5; cursor: default; }
 tr.row-active td { background: #eef5fc; }
 tr.row-pending td { color: #999; }
 .koststed-value { font-weight: 600; white-space: nowrap; }
+.copy-button {
+  padding: 3px 5px;
+  margin-left: 8px;
+  line-height: 0;
+  background: #fff;
+  color: #1d3a57;
+  border: 1px solid #c6ccd4;
+  vertical-align: middle;
+}
+.copy-button svg { display: block; }
+.copy-button:hover { background: #eef5fc; }
+.copy-button.copied { background: #dff2df; border-color: #4c9a52; color: #25692b; }
+.copy-button.copy-failed { background: #fbe3e3; border-color: #b23a3a; color: #7a2222; }
 .saved-files { font-size: 0.8rem; color: #666; margin-top: 10px; }
 
 /* the manual search panel, deliberately subdued */
@@ -300,3 +319,31 @@ tr.row-deleting td { background: #fbe3e3; }
 .field-row input { flex: 1; }
 .field select { margin-top: 8px; max-width: 100%; }
 .path { font-family: Menlo, monospace; font-size: 0.8rem; word-break: break-all; }
+
+/* BATCH */
+
+.batch-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.9rem; color: #333; }
+.add-notes { list-style: none; margin: -14px 0 18px; font-size: 0.85rem; color: #7a2222; }
+.toolbar h2 { margin-bottom: 0; }
+.queue-table td { vertical-align: middle; }
+.queue-row { cursor: pointer; }
+.queue-row:hover td { background: #f5f8fb; }
+.queue-row.selected td { background: #e4eef8; }
+.queue-file { font-weight: 600; word-break: break-all; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  background: #fff;
+  color: #1d3a57;
+  border: 1px solid #c6ccd4;
+  border-radius: 14px;
+  padding: 3px 11px;
+  font-size: 0.8rem;
+}
+.chip.active { background: #1d3a57; color: #fff; border-color: #1d3a57; }
+.result-row { cursor: pointer; }
+.result-row:hover td { background: #f5f8fb; }
+.result-row.open td { border-bottom-color: transparent; }
+.row-detail td { background: #fafbfc; color: #444; font-size: 0.85rem; padding-top: 2px; }
+/* the agent's columns start here: what the screenshot said on the left, what was found on the right */
+.split { border-left: 2px solid #b9c6d6; }
+th.split { color: #1d3a57; }

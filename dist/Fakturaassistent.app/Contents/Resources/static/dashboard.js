@@ -189,6 +189,9 @@ function resultText(run) {
   if (run.status === "error") {
     return '<span class="badge badge-open">Feilet</span><div class="small">' + esc(run.error) + "</div>";
   }
+  if (run.status === "stopped") {
+    return '<span class="badge badge-confirm">Stoppet</span><div class="small">' + run.items + " behandlet før stopp</div>";
+  }
   var results = run.results;
   var text = results["løst"] + " av " + run.items + " løst";
   var rest = [];
