@@ -49,7 +49,7 @@ if __name__ == "__main__":
 
     for m in models:
         props = model_properties(m)
-        name = props.get("id", "ukjent")
+        name = props.get("id", "unknown")
 
         # Increase the box size to fit long model names
         box_width = max(len(name) + 2, 40)

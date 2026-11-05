@@ -334,9 +334,9 @@ if __name__ == "__main__":
 
         # a missing file reads as unset and is created on save
         assert read_config(CONFIG_FILE) == {"API_URL": None, "API_MODEL": None, "API_KEY": None, "MISTRAL_API_KEY": None}
-        write_config(CONFIG_FILE, {"API_URL": "http://server.test/v1", "API_MODEL": "modell-a"})
+        write_config(CONFIG_FILE, {"API_URL": "http://server.test/v1", "API_MODEL": "model-a"})
         values = read_config(CONFIG_FILE)
-        assert values["API_URL"] == "http://server.test/v1" and values["API_MODEL"] == "modell-a"
+        assert values["API_URL"] == "http://server.test/v1" and values["API_MODEL"] == "model-a"
         assert not (Path(temp_dir) / "config.env.tmp").exists()
 
         # a file in the .env.example style keeps its comments and other lines
@@ -344,18 +344,18 @@ if __name__ == "__main__":
             "\n# Example API envs\n"
             'API_URL = "http://old.test"   # The server endpoint\n'
             'API_KEY = "sk-old-key-1234"\n'
-            "export API_MODEL=gammel\n"
+            "export API_MODEL=old-model\n"
             'OTHER_THING = "stays"\n',
             encoding="utf-8",
         )
-        write_config(CONFIG_FILE, {"API_MODEL": "ny-modell", "MISTRAL_API_KEY": "mstrl-new-key-9876"})
+        write_config(CONFIG_FILE, {"API_MODEL": "new-model", "MISTRAL_API_KEY": "mstrl-new-key-9876"})
         text = CONFIG_FILE.read_text(encoding="utf-8")
         assert "# Example API envs" in text and 'OTHER_THING = "stays"' in text
-        assert 'API_MODEL="ny-modell"' in text and "gammel" not in text
+        assert 'API_MODEL="new-model"' in text and "old-model" not in text
         assert text.count("API_MODEL") == 1 and text.count("MISTRAL_API_KEY") == 1
         values = read_config(CONFIG_FILE)
         assert values == {
-            "API_URL": "http://old.test", "API_MODEL": "ny-modell",
+            "API_URL": "http://old.test", "API_MODEL": "new-model",
             "API_KEY": "sk-old-key-1234", "MISTRAL_API_KEY": "mstrl-new-key-9876",
         }, values
 
@@ -368,7 +368,7 @@ if __name__ == "__main__":
         assert validate_updates({"API_KEY": 'a"b'}) is not None
 
         # the state: secrets masked, a changed value flagged against the started values
-        STARTED_WITH = {"API_URL": "http://old.test", "API_MODEL": "gammel", "API_KEY": "sk-old-key-1234", "MISTRAL_API_KEY": None}
+        STARTED_WITH = {"API_URL": "http://old.test", "API_MODEL": "old-model", "API_KEY": "sk-old-key-1234", "MISTRAL_API_KEY": None}
         FOLDERS = [("Mappe", Path(temp_dir)), ("Mangler", Path(temp_dir) / "nei")]
         state = _settings_state()
         by_key = {}
@@ -395,11 +395,11 @@ if __name__ == "__main__":
         # the model list, with the server call stood in for
         def fake_list_models(url, key):
             assert url == "http://new.test/v1" and key == "sk-fresh-key-5555", (url, key)
-            return ["modell-1", "modell-2"]
+            return ["model-1", "model-2"]
         real_list_models = list_models
         list_models = fake_list_models
         answer = models({"url": "", "key": ""})
-        assert answer["models"] == ["modell-1", "modell-2"], answer
+        assert answer["models"] == ["model-1", "model-2"], answer
         list_models = real_list_models
         CONFIG_FILE.write_text("", encoding="utf-8")
         assert models({"url": "", "key": ""}).status_code == 400

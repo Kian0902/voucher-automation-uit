@@ -60,7 +60,8 @@ jobs:
               "Legg de tre rapportfilene (CSV) her, med de opprinnelige navnene.\n",
               encoding="utf-8-sig",
           )
-          shutil.copy("app/windows/LES MEG.txt", program / "LES MEG.txt")
+          # the staff see the Norwegian name; the source file has an English one
+          shutil.copy("app/windows/staff_readme.txt", program / "LES MEG.txt")
 
       - uses: actions/upload-artifact@v4
         with:

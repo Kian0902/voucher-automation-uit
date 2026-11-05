@@ -1,4 +1,4 @@
-xefxbbxbfFakturaassistent for Windows
+﻿Fakturaassistent for Windows
 
 1. Legg de tre rapportfilene (CSV) i mappen data\koststed_tables.
 
