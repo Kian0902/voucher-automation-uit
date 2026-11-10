@@ -61,6 +61,14 @@ function formatDate(isoText) {
   return day + "." + month + "." + date.getFullYear();
 }
 
+// dd.mm.yyyy hh:mm
+function formatDateTime(isoText) {
+  var date = new Date(isoText);
+  var hours = String(date.getHours()).padStart(2, "0");
+  var minutes = String(date.getMinutes()).padStart(2, "0");
+  return formatDate(isoText) + " " + hours + ":" + minutes;
+}
+
 // COPY BUTTONS, shared by the agent page and the batch page: one click puts a koststed, an IO
 // or a suggestion on the clipboard
 
@@ -159,27 +167,54 @@ function badgeFor(label) {
   return "";
 }
 
+// inline line icons for the sidebar, one per page, so the app needs no icon font
+var ICON_START = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">';
+var PAGE_ICONS = {
+  "/": ICON_START + '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/>'
+    + '<rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>',
+  "/agents": ICON_START + '<circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/>'
+    + '<path d="M7.5 6H14a3 3 0 0 1 0 6h-4a3 3 0 0 0 0 6h6.5"/></svg>',
+  "/batch": ICON_START + '<path d="M12 3 3 8l9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 16 9 5 9-5"/></svg>',
+  "/knowledge": ICON_START + '<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/>'
+    + '<path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg>',
+  "/settings": ICON_START + '<path d="M4 7h9M18 7h2M4 17h4M13 17h7"/><circle cx="15.5" cy="7" r="2.5"/><circle cx="10.5" cy="17" r="2.5"/></svg>',
+};
+var BRAND_MARK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#2160b0"/>'
+  + '<path d="M7 7.5h10M7 12h10M7 16.5h6" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>';
+
 function renderSidebar() {
   var sidebar = document.getElementById("sidebar");
   var currentPage = document.body.dataset.page;
-  var parts = ['<div class="brand">Fakturaassistent</div>'];
+  var parts = ['<div class="brand"><span class="brand-mark">' + BRAND_MARK + "</span>Fakturaassistent</div>"];
   for (var i = 0; i < PAGES.length; i++) {
     var page = PAGES[i];
     var className = "nav-link";
     if (page.path === currentPage) {
       className = className + " active";
     }
+    // the pulsing dot sits on the page the run was started from
     var dot = "";
     if (page.path === "/agents") {
-      dot = '<span class="run-dot" id="run-dot"></span>';
+      dot = '<span class="run-dot" id="run-dot-agents"></span>';
+    } else if (page.path === "/batch") {
+      dot = '<span class="run-dot" id="run-dot-batch"></span>';
     }
-    parts.push('<a class="' + className + '" href="' + page.path + '">' + esc(page.title) + dot + "</a>");
+    parts.push('<a class="' + className + '" href="' + page.path + '">'
+      + '<span class="nav-icon">' + PAGE_ICONS[page.path] + "</span>"
+      + '<span class="nav-title">' + esc(page.title) + "</span>" + dot + "</a>");
   }
   sidebar.innerHTML = parts.join("");
 }
 
 function onStatus(listener) {
   statusListeners.push(listener);
+}
+
+function setRunDot(id, visible) {
+  var dot = document.getElementById(id);
+  if (dot !== null) {
+    dot.classList.toggle("visible", visible);
+  }
 }
 
 // a bar across the top for the two cases where the pages cannot work: the app was quit,
@@ -250,10 +285,10 @@ async function pollStatus() {
   if (state.can_quit) {
     showQuitButton();
   }
-  var runDot = document.getElementById("run-dot");
-  if (runDot !== null) {
-    runDot.classList.toggle("visible", state.status === "running");
-  }
+  var running = state.status === "running";
+  var fromBatch = state.source === "batch";
+  setRunDot("run-dot-agents", running && !fromBatch);
+  setRunDot("run-dot-batch", running && fromBatch);
   for (var i = 0; i < statusListeners.length; i++) {
     try {
       statusListeners[i](state);

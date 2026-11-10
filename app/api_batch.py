@@ -36,9 +36,9 @@ router = APIRouter()
 
 # HOOKS, replaced by server.py
 
-def start_run(file_bytes: bytes, filename: str):
+def start_run(file_bytes: bytes, filename: str, source: str = "agent"):
     """
-    Start a run on one file, as the agent page does.
+    Start a run on one file, as the agent page does. The queue passes source "batch".
 
     server.py replaces this function with its own. On its own the module cannot run anything.
 
@@ -124,37 +124,38 @@ def summarize(kind: str, snapshot: dict) -> dict:
     """
     How one finished run came out, as counts per result label.
 
-    A list run counts its finished rows, an invoice run its problems.
+    A list run counts its finished rows. An invoice is one item with one result, the one the
+    server decided from its koststed; its problems are not counted one by one.
 
     Args:
         kind (str): "faktura" or "liste".
         snapshot (dict): The final state of the run.
 
     Returns:
-        dict: One count per result label, "handled" (rows or problems with a result) and
-              "total" (rows in the screenshot, or problems found).
+        dict: One count per result label, "handled" (rows or invoices with a result) and
+              "total" (rows in the screenshot, or 1 for an invoice that got a result).
     """
 
     summary = {}
     for label in RESULT_LABELS:
         summary[label] = 0
 
+    total = 0
     if kind == "liste":
-        entries = snapshot.get("rows", [])
-        for row in entries:
+        rows = snapshot.get("rows", [])
+        total = len(rows)
+        for row in rows:
             if row.get("status") == "done" and row.get("resultat") in summary:
                 summary[row["resultat"]] = summary[row["resultat"]] + 1
-    else:
-        entries = snapshot.get("problems", [])
-        for problem in entries:
-            if problem.get("status") in summary:
-                summary[problem["status"]] = summary[problem["status"]] + 1
+    elif snapshot.get("resultat") in summary:
+        total = 1
+        summary[snapshot["resultat"]] = 1
 
     handled = 0
     for label in RESULT_LABELS:
         handled = handled + summary[label]
     summary["handled"] = handled
-    summary["total"] = len(entries)
+    summary["total"] = total
     return summary
 
 
@@ -296,7 +297,7 @@ def _work() -> None:
             _wake.clear()
             continue
 
-        run_id, problem = start_run(job["data"], job["filename"])
+        run_id, problem = start_run(job["data"], job["filename"], "batch")
         if run_id is None:
             message, status_code = problem
             if status_code == BUSY_STATUS_CODE:
@@ -539,7 +540,7 @@ if __name__ == "__main__":
             if fake["run_id"] == run_id and fake["state"]["status"] == "running":
                 fake["state"] = final_state
 
-    def fake_start_run(file_bytes: bytes, filename: str):
+    def fake_start_run(file_bytes: bytes, filename: str, source: str = "agent"):
         with fake["lock"]:
             if fake["state"]["status"] == "running":
                 return None, ("opptatt", BUSY_STATUS_CODE)
@@ -556,7 +557,7 @@ if __name__ == "__main__":
                            "problems": [], "stages": []}
         else:
             final_state = {"status": "done", "error": None, "duration_seconds": 0.5, "rows": [], "rows_done": 0,
-                           "problems": [{"status": "må bekreftes"}], "stages": []}
+                           "problems": [{"status": "må bekreftes"}], "resultat": "må bekreftes", "stages": []}
         delay = 0.05
         if file_bytes == b"slow":
             delay = 30

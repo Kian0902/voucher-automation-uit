@@ -153,7 +153,9 @@ function renderSearch(data) {
 function renderStatusLine(state) {
   var line = document.getElementById("status-line");
   line.className = state.status;
-  if (state.status === "idle") {
+  if (state.batch_running) {
+    line.textContent = "Batchbehandling pågår. Resultatene står på siden Batchbehandling.";
+  } else if (state.status === "idle") {
     line.textContent = "Venter på fil";
   } else if (state.status === "running") {
     if (state.stop_requested) {
@@ -166,6 +168,10 @@ function renderStatusLine(state) {
     }
   } else if (state.status === "done") {
     line.textContent = "Ferdig på " + Math.round(state.duration_seconds) + " sekunder";
+    // an invoice run carries one verdict, decided by its koststed
+    if (state.resultat) {
+      line.textContent = line.textContent + ", " + state.resultat;
+    }
   } else if (state.status === "stopped") {
     line.textContent = "Stoppet";
   } else if (state.status === "error") {
@@ -182,12 +188,10 @@ function renderPipeline(state) {
     if (stage.status !== "pending") {
       className = className + " " + stage.status;
     }
-    if (i > 0) {
-      parts.push('<div class="arrow"></div>');
-    }
     parts.push(
       '<div class="' + className + '">'
-      + '<div class="stage-box">' + esc(stage.title) + "</div>"
+      + '<span class="stage-dot"></span>'
+      + '<div class="stage-title">' + esc(stage.title) + "</div>"
       + '<div class="stage-desc">' + esc(stage.description) + "</div>"
       + '<div class="stage-verdict">' + esc(stage.verdict) + "</div>"
       + "</div>"
@@ -304,9 +308,9 @@ function renderListRows(state) {
       '<tr class="row-' + esc(row.status) + '">'
       + "<td>" + esc(row.row_number) + "</td>"
       + "<td>" + esc(row.leverandor) + "</td>"
-      + "<td>" + esc(row.fakturanr) + "</td>"
+      + '<td class="code">' + esc(row.fakturanr) + "</td>"
       + "<td>" + esc(row.deres_ref) + "</td>"
-      + "<td>" + esc(row.ordrenr) + "</td>"
+      + '<td class="code">' + esc(row.ordrenr) + "</td>"
       + "<td>" + koststedCell + "</td>"
       + "<td>" + esc(row.begrunnelse) + "</td>"
       + "<td>" + statusCell + "</td>"
@@ -324,7 +328,36 @@ function renderListRows(state) {
 
 var lastStateJson = null;
 
+// A run started on the batch page is not this page's: it is shown as an idle page with one
+// line while it runs, and not at all when it is over.
+function batchView(state) {
+  return {
+    status: "idle",
+    kind: null,
+    source: "batch",
+    filename: null,
+    error: null,
+    duration_seconds: null,
+    stages: [],
+    lookups: [],
+    problems: [],
+    rows: [],
+    rows_done: 0,
+    resultat: null,
+    saved: [],
+    stop_requested: false,
+    batch_running: state.status === "running",
+    data_error: state.data_error,
+    settings_missing: state.settings_missing,
+    run_id: state.run_id,
+  };
+}
+
 function render(state) {
+  if (state.source === "batch") {
+    state = batchView(state);
+  }
+
   // the error banner shows data and run errors, and upload errors for a few seconds
   if (state.data_error) {
     errorBanner.textContent = state.data_error;

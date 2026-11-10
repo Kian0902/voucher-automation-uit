@@ -125,6 +125,46 @@ from langchain_core.messages import HumanMessage
 import run_log
 run_log.LOGS_DIR = APP_ROOT / "logs"
 
+# the app must not grow without end on the staff's PC: old logs and result files go at start,
+# the run history (runs.jsonl) behind the dashboard stays (decided 2026-11-10)
+LOG_RETENTION_DAYS = 30
+OUTPUT_RETENTION_DAYS = 90
+RUN_HISTORY_NAME = "runs.jsonl"
+
+
+def _prune_old_files(folder: Path, days: int, keep: tuple = ()) -> int:
+    """
+    Delete the files in a folder that are older than a number of days.
+
+    Args:
+        folder (Path): The folder; nothing happens when it does not exist.
+        days (int): Files modified more than this many days ago are deleted.
+        keep (tuple[str, ...]): File names that are never deleted.
+
+    Returns:
+        int: How many files were deleted.
+    """
+
+    if not folder.is_dir():
+        return 0
+    cutoff = time.time() - days * 24 * 60 * 60
+    deleted = 0
+    for path in folder.iterdir():
+        if not path.is_file() or path.name in keep:
+            continue
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                deleted = deleted + 1
+        except OSError:
+            # a file held open by another program is left for the next start
+            pass
+    return deleted
+
+
+_prune_old_files(run_log.LOGS_DIR, LOG_RETENTION_DAYS)
+_prune_old_files(OUTPUT_DIR, OUTPUT_RETENTION_DAYS, keep=(RUN_HISTORY_NAME,))
+
 import lookup_data
 import main as agent_main
 import list_agent
@@ -135,7 +175,7 @@ from ocr_parser import parse_ocr_response
 from xml_processor import parse_invoice_xml
 
 import api_dashboard
-api_dashboard.RECORDS_FILE = OUTPUT_DIR / "runs.jsonl"
+api_dashboard.RECORDS_FILE = OUTPUT_DIR / RUN_HISTORY_NAME
 api_dashboard.REPORTS_DIR = REPORTS_DIR
 
 import api_knowledge
@@ -162,6 +202,28 @@ list_agent.run_log.live_output = False
 
 app = FastAPI(title=APP_TITLE)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.middleware("http")
+async def revalidate_static(request: Request, call_next):
+    """
+    Make the browser revalidate the stylesheet and the scripts on every load.
+
+    Without a Cache-Control header WebKit keeps them for a while on its own judgement, so a new
+    version of the app could show its new pages with the old stylesheet.
+
+    Args:
+        request (Request): The incoming request.
+        call_next: The next handler in the chain.
+
+    Returns:
+        Response: The handler's response, with the header added for /static/ files.
+    """
+
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 app.include_router(api_dashboard.router)
 app.include_router(api_knowledge.router)
 app.include_router(api_settings.router)
@@ -250,6 +312,7 @@ LIST_STAGES = [
 _IDLE_STATE = {
     "status": "idle",   # idle | running | done | error
     "kind": None,       # faktura | liste
+    "source": None,     # agent | batch: the page the run was started from
     "filename": None,
     "error": None,
     "duration_seconds": None,
@@ -258,6 +321,7 @@ _IDLE_STATE = {
     "problems": [],     # invoice runs: the result rows
     "rows": [],         # list runs: one entry per row of the screenshot
     "rows_done": 0,
+    "resultat": None,   # invoice runs: løst | må bekreftes | uløst, decided by the koststed alone
     "saved": [],        # the files written by a list run
     "stop_requested": False,  # the staff pressed stop; the run ends after the current step
 }
@@ -331,7 +395,7 @@ def _set_stage(stage_key: str, stage_status: str, verdict=None) -> None:
                     stage["verdict"] = verdict
 
 
-def _reset_state(filename: str, kind: str, stage_plan: list) -> int:
+def _reset_state(filename: str, kind: str, stage_plan: list, source: str) -> int:
     """
     Reset STATE for a new run.
 
@@ -339,6 +403,7 @@ def _reset_state(filename: str, kind: str, stage_plan: list) -> int:
         filename (str): Display name of the uploaded file.
         kind (str): "faktura" or "liste".
         stage_plan (list): INVOICE_STAGES or LIST_STAGES.
+        source (str): "agent" or "batch", the page the run was started from.
 
     Returns:
         int: The new run's id, for the worker thread.
@@ -355,6 +420,7 @@ def _reset_state(filename: str, kind: str, stage_plan: list) -> int:
         STATE = copy.deepcopy(_IDLE_STATE)
         STATE["status"] = "running"
         STATE["kind"] = kind
+        STATE["source"] = source
         STATE["filename"] = filename
         STATE["stages"] = stages
         STATE["stages"][0]["status"] = "done"
@@ -499,31 +565,37 @@ def _model_failure_reason() -> str:
 
 def _invoice_result(problems: list) -> str:
     """
-    The result of a whole invoice, from the statuses of its problems.
+    The result of a whole invoice, decided by its koststed alone.
+
+    Kian's rule of 2026-11-10: an invoice with a koststed is løst, whatever else is missing.
+    An IO maps to exactly one koststed, so a found IO gives the koststed too; a missing IO
+    cannot be derived and must not count against the invoice. The other problems keep their
+    own status in the result table.
 
     Args:
         problems (list[dict]): The result rows of the invoice run.
 
     Returns:
-        str: "løst" when every problem is løst (or there was none), "må bekreftes" when the
-             rest are suggestions, else "uløst". A problem without a status counts as uløst,
-             since the resolver never reached it.
+        str: "løst" when no problem concerns the koststed, or every koststed problem is løst;
+             "må bekreftes" when one has a suggestion only; "uløst" when one has none or the
+             resolver never reached it.
     """
 
-    if len(problems) == 0:
-        return "løst"
-    all_resolved = True
-    any_unresolved = False
+    koststed_statuses = []
     for problem in problems:
-        if problem["status"] != "løst":
-            all_resolved = False
-        if problem["status"] != "løst" and problem["status"] != "må bekreftes":
-            any_unresolved = True
-    if all_resolved:
+        is_koststed_problem = problem["category"] == LABEL_NAMES[1] or problem["field"] == "buyer_reference"
+        if is_koststed_problem:
+            koststed_statuses.append(problem["status"])
+
+    if len(koststed_statuses) == 0:
         return "løst"
-    if any_unresolved:
-        return "uløst"
-    return "må bekreftes"
+    for status_text in koststed_statuses:
+        if status_text != "løst" and status_text != "må bekreftes":
+            return "uløst"
+    for status_text in koststed_statuses:
+        if status_text == "må bekreftes":
+            return "må bekreftes"
+    return "løst"
 
 
 def _record_run(status: str, error) -> None:
@@ -890,6 +962,7 @@ def _finalize_invoice_run(labeled_problems, resolutions) -> None:
 
     with STATE_LOCK:
         STATE["status"] = "done"
+        STATE["resultat"] = _invoice_result(STATE["problems"])
         STATE["duration_seconds"] = agent_main.run_log.duration_seconds()
     _record_run("done", None)
 
@@ -1054,12 +1127,14 @@ def _resolve_rows(erp_list: dict) -> dict:
     return resolved_list
 
 
-def _save_list_outputs(raw_response: dict, resolved_list: dict, filename: str) -> list:
+def _save_list_outputs(resolved_list: dict, filename: str) -> list:
     """
-    Write the raw OCR response, the resolved list and the CSV sheet to the output folder.
+    Write the resolved list and the CSV sheet to the output folder.
+
+    The raw OCR response is not kept: nothing reads it, and at 25 KB per screenshot it was the
+    largest thing the app wrote (decided 2026-11-10).
 
     Args:
-        raw_response (dict): The OCR response, kept so a misread can be traced.
         resolved_list (dict): The resolved list from _resolve_rows().
         filename (str): The screenshot's filename; its stem names the files.
 
@@ -1070,9 +1145,6 @@ def _save_list_outputs(raw_response: dict, resolved_list: dict, filename: str) -
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     stem = Path(filename).stem
 
-    ocr_path = OUTPUT_DIR / (stem + ".ocr.json")
-    ocr_path.write_text(json.dumps(raw_response, indent=2, ensure_ascii=False), encoding="utf-8")
-
     json_path = OUTPUT_DIR / (stem + ".json")
     json_path.write_text(to_json(resolved_list), encoding="utf-8")
 
@@ -1080,7 +1152,7 @@ def _save_list_outputs(raw_response: dict, resolved_list: dict, filename: str) -
     csv_path = OUTPUT_DIR / (stem + ".csv")
     csv_path.write_text(to_csv(resolved_list), encoding="utf-8-sig")
 
-    return [ocr_path, json_path, csv_path]
+    return [json_path, csv_path]
 
 
 def _run_list(image_bytes: bytes, filename: str, run_id: int) -> None:
@@ -1132,7 +1204,7 @@ def _run_list(image_bytes: bytes, filename: str, run_id: int) -> None:
         if not _worker_owns_state():
             # stopped by the staff: the finished rows are saved for the run still on the page
             if _worker_run_is_current() and len(resolved_list["rows"]) > 0:
-                saved_paths = _save_list_outputs(raw_response, resolved_list, filename)
+                saved_paths = _save_list_outputs(resolved_list, filename)
                 with STATE_LOCK:
                     STATE["saved"] = [str(path) for path in saved_paths]
             return
@@ -1144,7 +1216,7 @@ def _run_list(image_bytes: bytes, filename: str, run_id: int) -> None:
         resolved_count = label_counts.get("løst", 0)
         _set_stage("resolve", "done", f"{resolved_count} av {row_count} løst")
 
-        saved_paths = _save_list_outputs(raw_response, resolved_list, filename)
+        saved_paths = _save_list_outputs(resolved_list, filename)
 
         with STATE_LOCK:
             STATE["status"] = "done"
@@ -1333,7 +1405,7 @@ def quit_app():
 RUN_START_LOCK = threading.Lock()
 
 
-def _start_run(file_bytes: bytes, filename: str):
+def _start_run(file_bytes: bytes, filename: str, source: str = "agent"):
     """
     Start a run on one file in a background thread: an XML invoice or a PNG screenshot.
 
@@ -1343,6 +1415,7 @@ def _start_run(file_bytes: bytes, filename: str):
     Args:
         file_bytes (bytes): The file content.
         filename (str): The original filename.
+        source (str): "agent" or "batch". The agent page shows only the runs it started itself.
 
     Returns:
         tuple[int | None, tuple[str, int] | None]: The run id, or the Norwegian message and the
@@ -1361,10 +1434,10 @@ def _start_run(file_bytes: bytes, filename: str):
             return None, ("Ingen fil mottatt", 400)
 
         if suffix == ".xml":
-            run_id = _reset_state(filename, "faktura", INVOICE_STAGES)
+            run_id = _reset_state(filename, "faktura", INVOICE_STAGES, source)
             worker = threading.Thread(target=_run_invoice, args=(file_bytes, filename, run_id), daemon=True)
         elif suffix == ".png":
-            run_id = _reset_state(filename, "liste", LIST_STAGES)
+            run_id = _reset_state(filename, "liste", LIST_STAGES, source)
             worker = threading.Thread(target=_run_list, args=(file_bytes, filename, run_id), daemon=True)
         else:
             return None, ("Filtypen støttes ikke. Slipp en XML-faktura eller et PNG-skjermbilde av listen", 400)

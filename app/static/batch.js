@@ -158,7 +158,7 @@ function renderQueue() {
   var rows = [];
   for (var i = 0; i < view.jobs.length; i++) {
     var job = view.jobs[i];
-    var className = "queue-row";
+    var className = "queue-row status-" + job.status;
     if (job.id === view.selectedId) {
       className = className + " selected";
     }
@@ -297,9 +297,9 @@ function listDetail(job, state) {
       '<tr class="' + className + '" data-key="' + key + '">'
       + "<td>" + esc(row.row_number) + "</td>"
       + "<td>" + esc(row.leverandor) + "</td>"
-      + "<td>" + esc(row.fakturanr) + "</td>"
+      + '<td class="code">' + esc(row.fakturanr) + "</td>"
       + "<td>" + esc(row.deres_ref) + "</td>"
-      + "<td>" + esc(row.ordrenr) + "</td>"
+      + '<td class="code">' + esc(row.ordrenr) + "</td>"
       + '<td class="split">' + koststedCell + "</td>"
       + "<td>" + statusCell + "</td>"
       + "</tr>"

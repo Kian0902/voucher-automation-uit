@@ -82,23 +82,18 @@ function renderTabs() {
     if (report.id === view.report) {
       className = className + " active";
     }
+    // only the title and when the file last changed; the counts and the file name belong to the table
     var detail;
     if (report.error) {
       detail = "Filen kan ikke leses";
+    } else if (report.modified) {
+      detail = "Sist oppdatert " + formatDateTime(report.modified);
     } else {
-      detail = formatNumber(report.rows) + " rader i filen";
-      if (report.loaded !== null && report.loaded !== report.rows) {
-        detail = detail + ", " + formatNumber(report.loaded) + " i bruk";
-      }
-    }
-    var fileLine = report.file;
-    if (report.modified) {
-      fileLine = fileLine + ", " + formatDate(report.modified);
+      detail = "Filen mangler";
     }
     parts.push('<button type="button" class="' + className + '" data-report="' + report.id + '">'
       + '<span class="report-title">' + esc(report.title) + "</span>"
       + '<span class="report-detail">' + esc(detail) + "</span>"
-      + '<span class="report-file">' + esc(fileLine) + "</span>"
       + "</button>");
   }
   reportTabs.innerHTML = parts.join("");

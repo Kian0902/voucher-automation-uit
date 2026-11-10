@@ -215,13 +215,30 @@ def _empty_week(start: date) -> dict:
         start (date): The week's Monday.
 
     Returns:
-        dict: week_start, runs, items and one counter per result label.
+        dict: week_start, runs, items and one counter per result label, plus the same
+              counters per input type under "liste" and "faktura".
     """
 
     week = {"week_start": start.isoformat(), "runs": 0, "items": 0}
     for label in RESULT_LABELS:
         week[label] = 0
+    week["liste"] = _empty_kind()
+    week["faktura"] = _empty_kind()
     return week
+
+
+def _empty_kind() -> dict:
+    """
+    The counters of one input type, all zero.
+
+    Returns:
+        dict: runs, items and one counter per result label.
+    """
+
+    counters = {"runs": 0, "items": 0}
+    for label in RESULT_LABELS:
+        counters[label] = 0
+    return counters
 
 
 def aggregate(records: list, weeks: int, today: date) -> dict:
@@ -254,6 +271,8 @@ def aggregate(records: list, weeks: int, today: date) -> dict:
     tokens = 0
     lookups = 0
     seconds_by_kind = {"liste": [], "faktura": []}
+    # lists and invoices resolve differently, so the page shows their results apart
+    by_kind = {"liste": _empty_kind(), "faktura": _empty_kind()}
     reason_counts = {}
     model_counts = {}
 
@@ -266,6 +285,10 @@ def aggregate(records: list, weeks: int, today: date) -> dict:
 
         runs = runs + 1
         week["runs"] = week["runs"] + 1
+        kind_counters = by_kind[record["kind"]]
+        kind_counters["runs"] = kind_counters["runs"] + 1
+        week_kind = week[record["kind"]]
+        week_kind["runs"] = week_kind["runs"] + 1
         if record["status"] == "error":
             failed_runs = failed_runs + 1
         tokens = tokens + record["tokens"]
@@ -276,9 +299,13 @@ def aggregate(records: list, weeks: int, today: date) -> dict:
         for item in record["items"]:
             items = items + 1
             week["items"] = week["items"] + 1
+            kind_counters["items"] = kind_counters["items"] + 1
+            week_kind["items"] = week_kind["items"] + 1
             label = item["resultat"]
             if label in RESULT_LABELS:
                 week[label] = week[label] + 1
+                kind_counters[label] = kind_counters[label] + 1
+                week_kind[label] = week_kind[label] + 1
             if item["seconds"] is not None:
                 seconds_by_kind[record["kind"]].append(item["seconds"])
             if label == "uløst":
@@ -323,6 +350,7 @@ def aggregate(records: list, weeks: int, today: date) -> dict:
         "per_week": per_week,
         "this_week": per_week[-1],
         "totals": totals,
+        "by_kind": by_kind,
         "time": {
             "all": _average_and_median(seconds_by_kind["liste"] + seconds_by_kind["faktura"]),
             "liste": _average_and_median(seconds_by_kind["liste"]),
@@ -423,6 +451,9 @@ if __name__ == "__main__":
         assert summary["totals"] == {"runs": 3, "failed_runs": 1, "items": 5,
                                      "løst": 2, "må bekreftes": 1, "flere funnet": 0, "uløst": 2}
         assert summary["time"]["liste"]["median"] == 2.5 and summary["time"]["faktura"]["average"] == 12.0
+        assert summary["by_kind"]["liste"]["uløst"] == 2 and summary["by_kind"]["liste"]["runs"] == 2
+        assert summary["this_week"]["liste"]["uløst"] == 2 and summary["this_week"]["faktura"]["items"] == 1
+        assert summary["by_kind"]["faktura"] == {"runs": 1, "items": 1, "løst": 1, "må bekreftes": 0, "flere funnet": 0, "uløst": 0}
         assert summary["tokens"] == 7100 and summary["per_item"]["tokens"] == 1420
         assert summary["reasons"][0]["count"] == 1 and len(summary["reasons"]) == 2
         assert summary["models"] == [{"model": "test-model", "runs": 2}]

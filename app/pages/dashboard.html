@@ -27,13 +27,22 @@
   <div class="kpi-grid" id="kpis"></div>
 
   <section>
-    <h2>Behandlet per uke</h2>
-    <div class="chart" id="chart"></div>
-    <div class="legend">
-      <span><span class="swatch" style="background: #4c9a52"></span>Løst</span>
-      <span><span class="swatch" style="background: #d9a21b"></span>Må bekreftes</span>
-      <span><span class="swatch" style="background: #9a9a9a"></span>Uløst</span>
+    <h2>Resultat per type</h2>
+    <div class="donuts" id="by-kind"></div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Behandlet per uke</h2>
+      <div class="legend">
+        <span><strong>L</strong> skjermbilder</span>
+        <span><strong>F</strong> fakturaer</span>
+        <span><span class="swatch" style="background: #1e7f4f"></span>Løst</span>
+        <span><span class="swatch" style="background: #b7791f"></span>Må bekreftes</span>
+        <span><span class="swatch" style="background: #667585"></span>Uløst</span>
+      </div>
     </div>
+    <div class="chart" id="chart"></div>
   </section>
 
   <div class="two-columns">
@@ -44,7 +53,7 @@
     <section>
       <h2>Rapportene</h2>
       <table>
-        <thead><tr><th>Rapport</th><th>Rader</th><th>Fil datert</th></tr></thead>
+        <thead><tr><th>Rapport</th><th class="num">Rader</th><th>Fil datert</th></tr></thead>
         <tbody id="reports"></tbody>
       </table>
     </section>
@@ -54,7 +63,7 @@
     <h2>Siste kjøringer</h2>
     <table>
       <thead>
-        <tr><th>Tidspunkt</th><th>Type</th><th>Fil</th><th>Resultat</th><th>Tid</th><th>Tokens</th></tr>
+        <tr><th>Tidspunkt</th><th>Type</th><th>Fil</th><th>Resultat</th><th class="num">Tid</th><th class="num">Tokens</th></tr>
       </thead>
       <tbody id="recent"></tbody>
     </table>
