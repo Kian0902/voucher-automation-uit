@@ -385,6 +385,16 @@ def _finish_write(report_id: str) -> str | None:
     if error is None:
         return None
 
+    # the new file passed the loader's check before it was installed; when it still reads, the
+    # failure is another report's (missing during setup), the file stays and the pages show the
+    # data error until that report is in place too
+    report = REPORTS[report_id]
+    try:
+        lookup_data.read_rows(report_path(report_id), report["header"])
+        return None
+    except (OSError, ValueError, UnicodeDecodeError, csv.Error):
+        pass
+
     backup_path = REPORTS_DIR / BACKUP_DIR_NAME / REPORTS[report_id]["file"]
     if backup_path.exists():
         shutil.copy2(backup_path, report_path(report_id))

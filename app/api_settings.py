@@ -2,9 +2,8 @@
 The settings page: the model server, the model, the keys and where the app keeps its files.
 
 The values live in the config file the app loaded at start (config.env next to the app, or
-.env.local in the repo). Saving rewrites that file, keeping every other line, and the change
-applies at the next start, since the model clients are built once when the agents are imported.
-The page shows which values differ from the ones the running app started with. Keys are never
+.env.local in the repo). Saving rewrites that file, keeping every other line, and hands the new
+values to server.py, which rebuilds the model clients, so they apply at once. Keys are never
 sent to the page in full, only their last characters.
 """
 
@@ -24,8 +23,32 @@ from openai import OpenAI
 # set by server.py: the config file it loaded and the folders it uses
 CONFIG_FILE = Path(".env.local")
 FOLDERS = []            # [(label, Path)]
-STARTED_WITH = {}       # key -> value the running app started with
 MODELS_TIMEOUT_SECONDS = 10
+
+
+# HOOKS, replaced by server.py
+
+def run_is_active() -> bool:
+    """
+    Whether an agent run is in progress right now; a save is refused while one is.
+
+    Returns:
+        bool: False on its own.
+    """
+
+    return False
+
+
+def apply_settings(values: dict) -> None:
+    """
+    Take the saved values into use: server.py puts them in the environment and rebuilds the
+    model clients. On its own the module only writes the file.
+
+    Args:
+        values (dict): key -> value or None, every setting as the file now has it.
+    """
+
+    return None
 
 # the settings in the order the page shows them; a secret is never sent in full
 SETTINGS = [
@@ -198,23 +221,18 @@ def _settings_state() -> dict:
     Everything the page shows: the values, the folders and the app.
 
     Returns:
-        dict: config_file, config_exists, settings (list), restart_needed (keys), folders, about.
+        dict: config_file, config_exists, settings (list), folders, about.
     """
 
     file_values = read_config(CONFIG_FILE)
-    restart_needed = []
     settings = []
     for setting in SETTINGS:
         key = setting["key"]
         file_value = file_values[key]
-        started_value = STARTED_WITH.get(key)
-        if file_value != started_value:
-            restart_needed.append(key)
         item = {
             "key": key,
             "secret": setting["secret"],
-            "is_set": file_value is not None,
-            "changed_since_start": file_value != started_value,
+            "is_set": file_value is not None and file_value != "",
         }
         if setting["secret"]:
             item["value"] = None
@@ -237,7 +255,6 @@ def _settings_state() -> dict:
         "config_file": str(CONFIG_FILE),
         "config_exists": CONFIG_FILE.is_file(),
         "settings": settings,
-        "restart_needed": restart_needed,
         "folders": folders,
         "about": about,
     }
@@ -269,6 +286,11 @@ def save_settings(payload: dict):
     sent = payload.get("values")
     if not isinstance(sent, dict):
         return JSONResponse({"message": "Ingen verdier mottatt"}, status_code=400)
+    if run_is_active():
+        return JSONResponse(
+            {"message": "En kjøring pågår. Vent til den er ferdig før du endrer innstillingene"},
+            status_code=409,
+        )
 
     updates = {}
     for setting in SETTINGS:
@@ -291,7 +313,8 @@ def save_settings(payload: dict):
     except OSError as error:
         return JSONResponse({"message": f"Filen kunne ikke skrives: {error}"}, status_code=500)
 
-    message = f"Lagret i {CONFIG_FILE.name}. Endringene gjelder fra neste start av appen"
+    apply_settings(read_config(CONFIG_FILE))
+    message = f"Lagret i {CONFIG_FILE.name} og tatt i bruk"
     return {"message": message, "state": _settings_state()}
 
 
@@ -367,25 +390,30 @@ if __name__ == "__main__":
         assert validate_updates({"API_MODEL": ""}) is not None
         assert validate_updates({"API_KEY": 'a"b'}) is not None
 
-        # the state: secrets masked, a changed value flagged against the started values
-        STARTED_WITH = {"API_URL": "http://old.test", "API_MODEL": "old-model", "API_KEY": "sk-old-key-1234", "MISTRAL_API_KEY": None}
+        # the state: secrets masked, the folders checked
         FOLDERS = [("Mappe", Path(temp_dir)), ("Mangler", Path(temp_dir) / "nei")]
         state = _settings_state()
         by_key = {}
         for item in state["settings"]:
             by_key[item["key"]] = item
         assert by_key["API_KEY"]["value"] is None and by_key["API_KEY"]["masked"] == "••••1234"
-        assert by_key["API_URL"]["value"] == "http://old.test" and by_key["API_URL"]["changed_since_start"] is False
-        assert state["restart_needed"] == ["API_MODEL", "MISTRAL_API_KEY"], state["restart_needed"]
+        assert by_key["API_URL"]["value"] == "http://old.test" and by_key["API_URL"]["is_set"] is True
         assert state["folders"][0]["exists"] is True and state["folders"][1]["exists"] is False
         assert "••••" not in text and "sk-old-key-1234" in text, "the file keeps the full key"
 
-        # saving through the endpoint: blank secrets are left alone, bad values refused
+        # saving through the endpoint: blank secrets are left alone, bad values refused, and the
+        # saved values are handed on to be taken into use
+        applied = []
+        apply_settings = applied.append
         answer = save_settings({"values": {"API_URL": "http://new.test/v1", "API_KEY": "", "MISTRAL_API_KEY": ""}})
         assert isinstance(answer, dict), answer.body
         assert read_config(CONFIG_FILE)["API_KEY"] == "sk-old-key-1234"
         assert read_config(CONFIG_FILE)["API_URL"] == "http://new.test/v1"
+        assert applied[-1]["API_URL"] == "http://new.test/v1" and applied[-1]["API_KEY"] == "sk-old-key-1234"
         assert save_settings({"values": {"API_URL": "nope"}}).status_code == 400
+        run_is_active = lambda: True  # noqa: E731
+        assert save_settings({"values": {"API_URL": "http://x.test"}}).status_code == 409
+        run_is_active = lambda: False  # noqa: E731
         assert save_settings({"values": {"API_MODEL": "  "}}).status_code == 400
         assert save_settings({"values": {}})["message"] == "Ingenting å lagre"
         assert save_settings({}).status_code == 400

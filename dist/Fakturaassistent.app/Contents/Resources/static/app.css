@@ -501,6 +501,23 @@ tr.row-deleting td { background: var(--danger-soft); }
 .field select { margin-top: 8px; max-width: 100%; }
 .path { font-family: var(--mono); font-size: 12px; color: var(--muted); word-break: break-all; }
 
+/* SETUP, one column, no sidebar */
+
+.setup-body { display: block; }
+#setup { max-width: 760px; margin: 0 auto; padding: 36px 32px 72px; }
+.setup-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; font-size: 15px; font-weight: 600; color: var(--ink); }
+.setup-brand .brand-mark { display: inline-flex; }
+.setup-brand .quit-button { margin: 0; color: var(--ink); border-color: var(--line-strong); }
+.setup-brand .quit-button:hover { background: var(--surface-2); }
+#setup .field { max-width: none; }
+.report-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.report-row:last-child { border-bottom: none; padding-bottom: 0; }
+.report-row > div { flex: 1; min-width: 0; }
+.report-row .button { flex: none; }
+.report-status { display: block; margin-top: 4px; font-size: 13px; word-break: break-word; }
+.report-status.ok { color: var(--ok-text); }
+.report-status.missing { color: var(--danger); }
+
 /* BATCH */
 
 .batch-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; color: var(--text); }

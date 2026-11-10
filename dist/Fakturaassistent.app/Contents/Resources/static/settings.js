@@ -1,12 +1,10 @@
-// The settings page: the config file's values in a form, saved back to the file; the model
-// list fetched from the server on request; the folders the app uses. Changes apply at the
-// next start, so the page flags values that differ from the ones the app started with.
+// The settings page: the config file's values in a form, saved back to the file and taken
+// into use at once; the model list fetched from the server on request; the folders the app uses.
 
 var KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY"];
 
 var introLine = document.getElementById("intro");
 var errorBanner = document.getElementById("settings-error");
-var restartNote = document.getElementById("restart-note");
 var modelsButton = document.getElementById("models-button");
 var modelsList = document.getElementById("models-list");
 var modelsNote = document.getElementById("models-note");
@@ -38,7 +36,7 @@ function clearMessage() {
 }
 
 function render(state) {
-  var intro = "Innstillingene ligger i " + state.config_file + ". Endringer gjelder fra neste start av appen.";
+  var intro = "Innstillingene ligger i " + state.config_file + ". Endringer tas i bruk med en gang.";
   if (!state.config_exists) {
     intro = intro + " Filen finnes ikke ennå og lages når du lagrer.";
   }
@@ -61,14 +59,6 @@ function render(state) {
     } else {
       input.value = setting.value || "";
     }
-  }
-
-  if (state.restart_needed.length > 0) {
-    restartNote.textContent = "Filen er endret etter at appen startet. Start appen på nytt for å ta i bruk: "
-      + state.restart_needed.join(", ") + ".";
-    restartNote.hidden = false;
-  } else {
-    restartNote.hidden = true;
   }
 
   var rows = [];

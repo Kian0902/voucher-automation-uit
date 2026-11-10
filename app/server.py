@@ -30,7 +30,7 @@ from pathlib import Path
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 
@@ -183,7 +183,6 @@ api_knowledge.REPORTS_DIR = REPORTS_DIR
 
 import api_settings
 api_settings.CONFIG_FILE = CONFIG_FILE
-api_settings.STARTED_WITH = STARTED_VALUES
 api_settings.FOLDERS = [
     ("Appens mappe", APP_ROOT),
     ("Innstillinger", CONFIG_FILE),
@@ -343,6 +342,50 @@ def _run_is_active() -> bool:
 
 
 api_knowledge.run_is_active = _run_is_active
+api_settings.run_is_active = _run_is_active
+
+
+def _apply_settings(values: dict) -> None:
+    """
+    Take saved settings into use without a restart.
+
+    The values go into the environment (a blank one gets its placeholder, as at start), the
+    model clients are rebuilt from it, and the list of missing settings the pages show is
+    refreshed. The OCR client is built per run and needs nothing.
+
+    Args:
+        values (dict): key -> value or None, every setting as the config file now has it.
+    """
+
+    global SETTINGS_MISSING
+    missing = []
+    for setting_key in SETTING_KEYS:
+        setting_value = values.get(setting_key) or ""
+        if setting_value == "":
+            missing.append(setting_key)
+            if setting_key == "API_URL":
+                os.environ[setting_key] = MISSING_URL
+            else:
+                os.environ[setting_key] = MISSING_VALUE
+        else:
+            os.environ[setting_key] = setting_value
+    SETTINGS_MISSING = missing
+    agent_main.configure_clients()
+    list_agent.configure_clients()
+
+
+api_settings.apply_settings = _apply_settings
+
+
+def _setup_needed() -> bool:
+    """
+    Whether the setup page must be shown instead of the app: a setting or a report is missing.
+
+    Returns:
+        bool: True until all four settings are set and the three reports load.
+    """
+
+    return len(SETTINGS_MISSING) > 0 or DATA_ERROR is not None
 
 # Every run gets a number, and the worker thread carries it. A stop ends the run on the page at
 # once; the worker is left to finish its current model call and then finds that its run is no
@@ -1230,19 +1273,31 @@ def _run_list(image_bytes: bytes, filename: str, run_id: int) -> None:
 
 # ROUTES
 
-def _page(name: str) -> HTMLResponse:
+def _page(name: str):
     """
-    Serve one of the pages in app/pages/.
+    Serve one of the pages in app/pages/, or the setup page while the app is not set up.
 
     Args:
         name (str): The file's stem, such as "dashboard".
 
     Returns:
         HTMLResponse: The page as it stands on disk, so an edit shows on the next load.
+        RedirectResponse: To the setup page while a setting or a report is missing.
     """
 
+    if _setup_needed() and name != "setup":
+        return RedirectResponse(url="/setup", status_code=303)
     page_path = PAGES_DIR / (name + ".html")
     return HTMLResponse(page_path.read_text(encoding="utf-8"))
+
+
+@app.get("/setup")
+def setup_page():
+    """The setup page: the keys and the three reports, before anything else can be used."""
+
+    if not _setup_needed():
+        return RedirectResponse(url="/", status_code=303)
+    return _page("setup")
 
 
 @app.get("/")
@@ -1293,6 +1348,7 @@ def status() -> dict:
         snapshot = copy.deepcopy(STATE)
     snapshot["data_error"] = DATA_ERROR
     snapshot["settings_missing"] = SETTINGS_MISSING
+    snapshot["setup_needed"] = _setup_needed()
     snapshot["run_id"] = RUN_ID
     snapshot["can_quit"] = BROWSER_MODE
     return snapshot

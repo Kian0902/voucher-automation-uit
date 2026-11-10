@@ -2570,7 +2570,7 @@
 		</data>
 		<key>Resources/base_library.zip</key>
 		<data>
-		AtAiRz6at6q+Ov6uaqLI+YZU3nc=
+		zSkmragn59XQicQ8DLEFwy6WuDg=
 		</data>
 		<key>Resources/certifi/cacert.pem</key>
 		<data>
@@ -2738,7 +2738,11 @@
 		</data>
 		<key>Resources/pages/settings.html</key>
 		<data>
-		OhCw71XvW8m+If0SpFu8PT02/RU=
+		i4dNqefasmotpTznCrKIESaHh4M=
+		</data>
+		<key>Resources/pages/setup.html</key>
+		<data>
+		kSwBPma2eQ7RFfr1SVU6onLu034=
 		</data>
 		<key>Resources/pydantic-2.13.4.dist-info/INSTALLER</key>
 		<data>
@@ -2774,7 +2778,7 @@
 		</data>
 		<key>Resources/static/app.css</key>
 		<data>
-		21ncpl3jUHhTP1eNwkD2XlLlG5w=
+		Wzasq7ogq42aGt2qxVZbIKMFZLI=
 		</data>
 		<key>Resources/static/batch.js</key>
 		<data>
@@ -2790,11 +2794,15 @@
 		</data>
 		<key>Resources/static/settings.js</key>
 		<data>
-		w+WMU7iyisj0I7534T8xEvNTkH0=
+		CuXvvmYZExOowDCPZUIreEONeZc=
+		</data>
+		<key>Resources/static/setup.js</key>
+		<data>
+		j/hVvZj91jPqhxZ8MovOmj0Xkj8=
 		</data>
 		<key>Resources/static/shell.js</key>
 		<data>
-		Pyj2b07knwr/s5NflEIWjdfjOls=
+		iwp/mcIeP6bTJ6IIMFBbyr6ByQA=
 		</data>
 		<key>Resources/tqdm-4.70.0.dist-info/INSTALLER</key>
 		<data>
@@ -8814,7 +8822,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			sRokt5A0fYbztkzbRsd5ewNJ+TXemhP9IEWTHR8KyAM=
+			O+tsQDPzBvTE3zBi2+vKO55U+PRFDWExmL4olzIiBRU=
 			</data>
 		</dict>
 		<key>Resources/certifi/cacert.pem</key>
@@ -9293,7 +9301,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			FOpn/q4/Ss5V1gxjAkN4S4zCviLD85YyTguyuSASf24=
+			ueAvO0uxTm+9MHEUyOhoDi3wASDYMasDypJMDqIlXR8=
+			</data>
+		</dict>
+		<key>Resources/pages/setup.html</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			h2DNkIwc1wGt229nDcNAP4C9LEF2V1RwmJnL+68YabE=
 			</data>
 		</dict>
 		<key>Resources/pydantic-2.13.4.dist-info/INSTALLER</key>
@@ -9376,7 +9391,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			vUibO0FmVY2lfqsvipItwqlSYW3NpCy1hvp7Gr92XlE=
+			9WD/HdA8F3aVO35g00fmfr4pCo8H918tm61jKz97I3s=
 			</data>
 		</dict>
 		<key>Resources/static/batch.js</key>
@@ -9404,14 +9419,21 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			goZWBjq2xY92WFk59+PEPHAb+nHqNVWL4i6N4+kTj50=
+			4NlWqpAVq7DFU2XCYxjfCvxApYujdlBbc4lSGVegljU=
+			</data>
+		</dict>
+		<key>Resources/static/setup.js</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			M7crFwScE/+I/gZkYSjwXk4awClNuQ5an9UqxGrfq14=
 			</data>
 		</dict>
 		<key>Resources/static/shell.js</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			D1oWz7dRza66H7QgCtHwd9N+eHFXcUj0wve2NoVYkKI=
+			GOfKdVANps8U1laX8E9AcxeAo/AW3nfPe305SKlMCvA=
 			</data>
 		</dict>
 		<key>Resources/tiktoken</key>

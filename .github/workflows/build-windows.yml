@@ -56,12 +56,12 @@ jobs:
           # the folder for the reports must exist in the ZIP, and an empty folder is not kept
           reports = program / "data" / "koststed_tables"
           reports.mkdir(parents=True, exist_ok=True)
-          (reports / "LES MEG.txt").write_text(
-              "Legg de tre rapportfilene (CSV) her, med de opprinnelige navnene.\n",
+          (reports / "README.txt").write_text(
+              "De tre rapportfilene (CSV) havner her. Last dem opp på oppsettsiden i appen,\n"
+              "eller senere under Kunnskapsbase.\n",
               encoding="utf-8-sig",
           )
-          # the staff see the Norwegian name; the source file has an English one
-          shutil.copy("app/windows/staff_readme.txt", program / "LES MEG.txt")
+          shutil.copy("app/windows/staff_readme.txt", program / "README.txt")
 
       - uses: actions/upload-artifact@v4
         with:

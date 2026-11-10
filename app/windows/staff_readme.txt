@@ -1,16 +1,14 @@
 ﻿Fakturaassistent for Windows
 
-1. Legg de tre rapportfilene (CSV) i mappen data\koststed_tables.
-
-2. Dobbeltklikk Fakturaassistent.exe.
+1. Dobbeltklikk Fakturaassistent.exe.
    Første gang kan Windows vise "Windows beskyttet PC-en din" (Windows protected your PC).
    Velg "Mer informasjon" (More info), og så "Kjør likevel" (Run anyway).
 
-3. Appen åpner seg i nettleseren. Første gang: gå til Innstillinger, fyll inn adresse,
-   modell og nøkler, og lagre. Velg så "Avslutt appen" nederst i menyen, og start
-   Fakturaassistent.exe på nytt.
+2. Appen åpner seg i nettleseren med oppsettsiden. Fyll inn adressen til modellserveren,
+   modellen og de to nøklene, velg de tre rapportfilene (CSV), og trykk "Fullfør oppsettet".
+   Da er appen klar. Alt kan endres senere under Innstillinger og Kunnskapsbase.
 
-4. Du avslutter appen med "Avslutt appen" nederst i menyen.
+3. Du avslutter appen med "Avslutt appen" nederst i menyen.
    Å lukke fanen i nettleseren avslutter den ikke.
 
 Hele mappen kan flyttes dit du vil. Filene og mappene config.env, data, logs og output

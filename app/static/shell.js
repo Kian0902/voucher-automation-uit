@@ -184,6 +184,9 @@ var BRAND_MARK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" h
 
 function renderSidebar() {
   var sidebar = document.getElementById("sidebar");
+  if (sidebar === null) {
+    return;  // the setup page has no sidebar
+  }
   var currentPage = document.body.dataset.page;
   var parts = ['<div class="brand"><span class="brand-mark">' + BRAND_MARK + "</span>Fakturaassistent</div>"];
   for (var i = 0; i < PAGES.length; i++) {
@@ -243,6 +246,11 @@ function showQuitButton() {
   if (document.getElementById("quit-button") !== null) {
     return;
   }
+  // the sidebar, or the slot the setup page offers instead
+  var holder = document.getElementById("sidebar") || document.getElementById("quit-slot");
+  if (holder === null) {
+    return;
+  }
   var button = document.createElement("button");
   button.id = "quit-button";
   button.type = "button";
@@ -258,7 +266,7 @@ function showQuitButton() {
       setTimeout(hideTopBar, 5000);
     }
   });
-  document.getElementById("sidebar").appendChild(button);
+  holder.appendChild(button);
 }
 
 async function pollStatus() {
@@ -282,6 +290,11 @@ async function pollStatus() {
     hideTopBar();
   }
   failedPolls = 0;
+  // nothing else can be used until the keys and the three reports are in place
+  if (state.setup_needed && document.body.dataset.page !== "/setup") {
+    window.location.href = "/setup";
+    return;
+  }
   if (state.can_quit) {
     showQuitButton();
   }

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fakturaassistent: oppsett</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body data-page="/setup" class="setup-body">
+<main id="setup">
+  <div class="setup-brand">
+    <span class="brand-mark" id="setup-mark"></span>
+    <span>Fakturaassistent</span>
+    <span class="toolbar-space"></span>
+    <span id="quit-slot"></span>
+  </div>
+  <h1>Oppsett</h1>
+  <p class="page-intro">Før appen kan brukes trenger den tilgangene til modellene og de tre økonomirapportene. Alt lagres i appens egen mappe på denne maskinen.</p>
+  <div id="setup-error" class="error-banner" hidden></div>
+
+  <section>
+    <h2>Modellserver</h2>
+    <div class="field">
+      <label for="API_URL">Adresse til modellserveren</label>
+      <input id="API_URL" type="text" autocomplete="off" spellcheck="false" placeholder="https://...">
+    </div>
+    <div class="field">
+      <label for="API_MODEL">Modell</label>
+      <input id="API_MODEL" type="text" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="API_KEY">Nøkkel til modellserveren</label>
+      <input id="API_KEY" type="password" autocomplete="new-password">
+      <p id="API_KEY-hint" class="small"></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mistral OCR</h2>
+    <div class="field">
+      <label for="MISTRAL_API_KEY">Nøkkel til Mistral OCR</label>
+      <input id="MISTRAL_API_KEY" type="password" autocomplete="new-password">
+      <p id="MISTRAL_API_KEY-hint" class="small"></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Rapportene</h2>
+    <p class="page-intro">De tre CSV-eksportene fra økonomisystemet. Hver fil kontrolleres når du velger den.</p>
+    <div id="report-rows"></div>
+  </section>
+
+  <div class="toolbar">
+    <button id="finish-button" type="button">Fullfør oppsettet</button>
+    <span id="message" class="message" hidden></span>
+  </div>
+</main>
+<script src="/static/shell.js"></script>
+<script src="/static/setup.js"></script>
+</body>
+</html>

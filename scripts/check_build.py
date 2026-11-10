@@ -30,7 +30,7 @@ from lookup_data import HEADER_A, HEADER_B, HEADER_C, REPORT_A, REPORT_B, REPORT
 
 URL = "http://127.0.0.1:8765"
 START_TIMEOUT_SECONDS = 90
-PAGES = ["/", "/agents", "/batch", "/knowledge", "/settings", "/static/shell.js", "/static/app.css"]
+PAGES = ["/", "/agents", "/batch", "/knowledge", "/settings", "/setup", "/static/shell.js", "/static/app.css"]
 
 
 def write_report(path: Path, header: list, rows: list) -> None:
@@ -132,6 +132,7 @@ if __name__ == "__main__":
         assert state["status"] == "idle" and state["data_error"] is None, state
         assert state["can_quit"] is True, "browser mode offers the quit button"
         assert sorted(state["settings_missing"]) == ["API_KEY", "API_MODEL", "API_URL", "MISTRAL_API_KEY"]
+        assert state["setup_needed"] is True, "without keys the setup page must come first"
         for page in PAGES:
             with urllib.request.urlopen(URL + page, timeout=5) as response:
                 assert response.status == 200, page
