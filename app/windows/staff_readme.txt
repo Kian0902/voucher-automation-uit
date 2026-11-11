@@ -4,9 +4,9 @@
    Første gang kan Windows vise "Windows beskyttet PC-en din" (Windows protected your PC).
    Velg "Mer informasjon" (More info), og så "Kjør likevel" (Run anyway).
 
-2. Appen åpner seg i nettleseren med oppsettsiden. Fyll inn adressen til modellserveren,
-   modellen, de to nøklene og navnet ditt, velg de tre rapportfilene (Excel-filen eller CSV),
-   og trykk "Fullfør oppsettet".
+2. Appen åpner seg i nettleseren med oppsettsiden. Velg modellserver og fyll inn adressen,
+   modellen og nøkkelen for den, nøkkelen til Mistral OCR og navnet ditt, velg de tre
+   rapportfilene (Excel-filen eller CSV), og trykk "Fullfør oppsettet".
    Da er appen klar. Alt kan endres senere under Innstillinger og Kunnskapsbase.
 
 3. Du avslutter appen ved å lukke fanen i nettleseren, eller med "Avslutt appen"

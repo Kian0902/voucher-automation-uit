@@ -23,7 +23,7 @@ src_dir = repo_root / "src"
 # our own modules are imported after a runtime sys.path change the analysis cannot follow
 own_modules = [
     "server", "api_dashboard", "api_knowledge", "api_settings", "api_batch", "main", "list_agent", "lookup_data", "lookup_tools", "normalize", "run_log",
-    "utils", "prompts", "erp_list", "ocr_parser", "mistral_ocr", "xml_processor",
+    "utils", "model_client", "prompts", "erp_list", "ocr_parser", "mistral_ocr", "xml_processor",
 ]
 
 # packages that import their submodules lazily, which the analysis misses

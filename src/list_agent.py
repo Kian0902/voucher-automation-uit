@@ -18,13 +18,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from typing import TypedDict, Annotated, Sequence
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field
 from openai import LengthFinishReasonError
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langchain_openai import ChatOpenAI
+from model_client import build_chat_model
 
 from prompts import ROW_LOOKUP_VALUES, ROW_PROBLEM_RESOLUTION
 from erp_list import new_resolved_row, to_csv, to_json
@@ -134,7 +134,7 @@ class RowState(TypedDict):
 
 def configure_clients() -> None:
     """
-    Build the model client and its two structured wrappers from the environment.
+    Build the model client for the chosen server (src/model_client.py) and its two structured wrappers from the environment.
 
     Called once at import, and again by the app when the settings are saved, so a new key or
     model is used by the next run without a restart. The nodes look the names up when they
@@ -142,15 +142,7 @@ def configure_clients() -> None:
     """
 
     global llm, llm_finder, llm_resolver
-    llm = ChatOpenAI(
-        model=os.environ["API_MODEL"],
-        base_url=os.environ["API_URL"],
-        api_key=SecretStr(os.environ["API_KEY"]),
-        temperature=0.1,         # 0.0 spirals, and frequency_penalty corrupted verbatim values (measured) - do not reintroduce either
-        timeout=120,
-        max_completion_tokens=7000,
-        max_retries=2,
-    )
+    llm = build_chat_model()
     llm_finder = llm.with_structured_output(RowValues, include_raw=True)
     llm_resolver = llm.with_structured_output(ResolveStep, include_raw=True)
 

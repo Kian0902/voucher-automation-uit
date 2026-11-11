@@ -2,12 +2,16 @@
 // Each report file is checked and installed the moment it is chosen; the button saves the
 // settings and, when nothing is missing any more, opens the dashboard.
 
-var KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY", "USER_NAME"];
+var KEYS = ["MODEL_SERVER", "API_URL", "API_MODEL", "API_KEY", "GATEWAY_API_URL", "GATEWAY_API_MODEL",
+  "GATEWAY_API_KEY", "MISTRAL_API_KEY", "USER_NAME"];
 var SETTING_NAMES = {
   API_URL: "adressen til modellserveren",
   API_MODEL: "modellen",
   API_KEY: "nøkkelen til modellserveren",
   MISTRAL_API_KEY: "nøkkelen til Mistral OCR",
+  GATEWAY_API_URL: "adressen til ApiManager",
+  GATEWAY_API_MODEL: "modellen hos ApiManager",
+  GATEWAY_API_KEY: "nøkkelen fra ApiManager",
   USER_NAME: "navnet",
 };
 
@@ -22,6 +26,15 @@ document.getElementById("setup-mark").innerHTML = BRAND_MARK;
 function fieldFor(key) {
   return document.getElementById(key);
 }
+
+// the block of the server that is not chosen is dimmed, so the eye goes to the one in use
+function markChosenServer() {
+  var chosen = fieldFor("MODEL_SERVER").value;
+  document.getElementById("server-maggie").classList.toggle("unchosen", chosen !== "maggie");
+  document.getElementById("server-gateway").classList.toggle("unchosen", chosen !== "gateway");
+}
+
+fieldFor("MODEL_SERVER").addEventListener("change", markChosenServer);
 
 function showError(text) {
   errorBanner.textContent = text;
@@ -92,6 +105,7 @@ async function load() {
   try {
     var state = await fetchJson("/settings/state");
     renderSettings(state);
+    markChosenServer();
     await loadReports();
     clearError();
   } catch (error) {

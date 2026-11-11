@@ -28,7 +28,6 @@ import time
 from pathlib import Path
 
 import uvicorn
-from dotenv import dotenv_values, load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -69,13 +68,20 @@ sys.path.insert(0, str(APP_ROOT / "src"))
 sys.path.insert(0, str(APP_DIR))
 
 # the model keys must be in the environment before main.py is imported, since it reads them at import
-SETTING_KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY", "USER_NAME"]
+import model_client
+import api_settings
+
 CONFIG_TEMPLATE = (
     "# Fakturaassistent: innstillinger. Filen ligger ved siden av Fakturaassistent.app.\n"
     "# Fyll inn verdiene mellom anførselstegnene, eller bruk Innstillinger i appen.\n"
+    '# modellserver: "maggie" (UiT ML-gruppen, API_*) eller "gateway" (UiT ApiManager, GATEWAY_API_*)\n'
+    'MODEL_SERVER="maggie"\n'
     'API_URL=""\n'
     'API_MODEL=""\n'
     'API_KEY=""\n'
+    f'GATEWAY_API_URL="{api_settings.GATEWAY_URL}"\n'
+    'GATEWAY_API_MODEL="gpt-6-luna"\n'
+    'GATEWAY_API_KEY=""\n'
     'MISTRAL_API_KEY=""\n'
     "# navnet som vises nederst i menyen\n"
     'USER_NAME=""\n'
@@ -95,39 +101,57 @@ if not CONFIG_FILE.is_file():
         CONFIG_FILE.write_text(CONFIG_TEMPLATE, encoding="utf-8")
     except OSError:
         pass
-load_dotenv(CONFIG_FILE)
 
-# what the app started with, for the settings page; a blank setting gets a placeholder so the
-# agents can be imported and the app starts, and the pages say which settings are missing
-STARTED_VALUES = {}
+# The settings come from the config file alone: a system variable of the same name (seen on a
+# Mac) must not stand in. A blank one gets a placeholder in the environment, so the agents can
+# be imported and the app starts; the pages say which settings the chosen server still misses.
+ENVIRONMENT_KEYS = [
+    "API_URL", "API_MODEL", "API_KEY", "GATEWAY_API_URL", "GATEWAY_API_MODEL", "GATEWAY_API_KEY", "MISTRAL_API_KEY",
+]
 SETTINGS_MISSING = []
-# the name is read from the file alone: a system variable of the same name (seen on a Mac)
-# must not become the name in the menu
-FILE_VALUES = {}
-if CONFIG_FILE.is_file():
-    FILE_VALUES = dotenv_values(CONFIG_FILE)
-for setting_key in SETTING_KEYS:
-    if setting_key == "USER_NAME":
-        setting_value = FILE_VALUES.get("USER_NAME")
-        if setting_value is None:
-            setting_value = ""
-    else:
-        setting_value = os.environ.get(setting_key, "")
-    if setting_value == "":
-        STARTED_VALUES[setting_key] = None
-        SETTINGS_MISSING.append(setting_key)
-        if setting_key == "API_URL":
-            os.environ[setting_key] = MISSING_URL
-        else:
-            os.environ[setting_key] = MISSING_VALUE
-    else:
-        STARTED_VALUES[setting_key] = setting_value
+USER_NAME = ""
+MODEL_SERVER = model_client.DEFAULT_MODEL_SERVER
 
-# the name shown at the bottom of the menu, from the config file only (the environment holds
-# the "mangler" placeholder when it is missing, which must never be shown)
-USER_NAME = STARTED_VALUES["USER_NAME"]
-if USER_NAME is None:
-    USER_NAME = ""
+
+def _take_settings(values: dict) -> None:
+    """
+    Put the settings into the environment the agents read, and note which are missing.
+
+    The chosen model server decides which address, model and key are required; the other
+    server's values may be blank. The name goes to the menu, never to the environment.
+
+    Args:
+        values (dict): key -> value or None, every setting as the config file has it.
+    """
+
+    global SETTINGS_MISSING, USER_NAME, MODEL_SERVER
+    server = values.get("MODEL_SERVER")
+    if server not in model_client.MODEL_SERVERS:
+        server = model_client.DEFAULT_MODEL_SERVER
+    MODEL_SERVER = server
+    os.environ["MODEL_SERVER"] = server
+    name = values.get("USER_NAME")
+    if name is None:
+        name = ""
+    USER_NAME = name
+    for setting_key in ENVIRONMENT_KEYS:
+        setting_value = values.get(setting_key)
+        if setting_value is None or setting_value == "":
+            if setting_key.endswith("API_URL"):
+                os.environ[setting_key] = MISSING_URL
+            else:
+                os.environ[setting_key] = MISSING_VALUE
+        else:
+            os.environ[setting_key] = setting_value
+    missing = []
+    for setting_key in model_client.SERVER_KEYS[server] + ["MISTRAL_API_KEY", "USER_NAME"]:
+        setting_value = values.get(setting_key)
+        if setting_value is None or setting_value == "":
+            missing.append(setting_key)
+    SETTINGS_MISSING = missing
+
+
+_take_settings(api_settings.read_config(CONFIG_FILE))
 
 APP_TITLE = "Fakturaassistent"
 REPORTS_DIR = APP_ROOT / "data" / "koststed_tables"
@@ -199,7 +223,6 @@ api_dashboard.REPORTS_DIR = REPORTS_DIR
 import api_knowledge
 api_knowledge.REPORTS_DIR = REPORTS_DIR
 
-import api_settings
 api_settings.CONFIG_FILE = CONFIG_FILE
 api_settings.FOLDERS = [
     ("Appens mappe", APP_ROOT),
@@ -368,31 +391,15 @@ def _apply_settings(values: dict) -> None:
     """
     Take saved settings into use without a restart.
 
-    The values go into the environment (a blank one gets its placeholder, as at start), the
-    model clients are rebuilt from it, and the list of missing settings the pages show is
-    refreshed. The OCR client is built per run and needs nothing.
+    The values go into the environment as at start, the model clients are rebuilt for the
+    chosen server, and the list of missing settings the pages show is refreshed. The OCR
+    client is built per run and needs nothing.
 
     Args:
         values (dict): key -> value or None, every setting as the config file now has it.
     """
 
-    global SETTINGS_MISSING, USER_NAME
-    name = values.get("USER_NAME")
-    if name is None:
-        name = ""
-    USER_NAME = name
-    missing = []
-    for setting_key in SETTING_KEYS:
-        setting_value = values.get(setting_key) or ""
-        if setting_value == "":
-            missing.append(setting_key)
-            if setting_key == "API_URL":
-                os.environ[setting_key] = MISSING_URL
-            else:
-                os.environ[setting_key] = MISSING_VALUE
-        else:
-            os.environ[setting_key] = setting_value
-    SETTINGS_MISSING = missing
+    _take_settings(values)
     agent_main.configure_clients()
     list_agent.configure_clients()
 
@@ -1375,6 +1382,8 @@ def status() -> dict:
     snapshot["run_id"] = RUN_ID
     snapshot["can_quit"] = BROWSER_MODE
     snapshot["user_name"] = USER_NAME.strip()
+    snapshot["model_server"] = MODEL_SERVER
+    snapshot["model_server_label"] = model_client.MODEL_SERVERS[MODEL_SERVER]
     global LAST_PAGE_SEEN
     LAST_PAGE_SEEN = time.monotonic()
     return snapshot

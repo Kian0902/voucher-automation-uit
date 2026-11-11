@@ -16,6 +16,17 @@
   <section>
     <h2>Modellserver</h2>
     <div class="field">
+      <label for="MODEL_SERVER">Hvilken modellserver agentene bruker</label>
+      <select id="MODEL_SERVER">
+        <option value="maggie">maggie (UiT ML-gruppen)</option>
+        <option value="gateway">GPT-6 Luna (UiT ApiManager)</option>
+      </select>
+    </div>
+  </section>
+
+  <section id="server-maggie">
+    <h2>maggie (UiT ML-gruppen)</h2>
+    <div class="field">
       <label for="API_URL">Adresse til modellserveren</label>
       <input id="API_URL" type="text" autocomplete="off" spellcheck="false">
     </div>
@@ -32,6 +43,23 @@
       <label for="API_KEY">Nøkkel til modellserveren</label>
       <input id="API_KEY" type="password" autocomplete="new-password">
       <p id="API_KEY-hint" class="small"></p>
+    </div>
+  </section>
+
+  <section id="server-gateway">
+    <h2>GPT-6 Luna (UiT ApiManager)</h2>
+    <div class="field">
+      <label for="GATEWAY_API_URL">Adresse til ApiManager</label>
+      <input id="GATEWAY_API_URL" type="text" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="GATEWAY_API_MODEL">Modell</label>
+      <input id="GATEWAY_API_MODEL" type="text" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="GATEWAY_API_KEY">Nøkkel fra ApiManager (siden API Keys)</label>
+      <input id="GATEWAY_API_KEY" type="password" autocomplete="new-password">
+      <p id="GATEWAY_API_KEY-hint" class="small"></p>
     </div>
   </section>
 

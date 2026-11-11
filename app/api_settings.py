@@ -19,6 +19,10 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from openai import OpenAI
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from model_client import DEFAULT_MODEL_SERVER, MODEL_SERVERS, SERVER_KEYS
+
 
 # set by server.py: the config file it loaded and the folders it uses
 CONFIG_FILE = Path(".env.local")
@@ -50,11 +54,17 @@ def apply_settings(values: dict) -> None:
 
     return None
 
-# the settings in the order the page shows them; a secret is never sent in full
+# the settings in the order the page shows them; a secret is never sent in full; a default is
+# what the page shows until a value is saved
+GATEWAY_URL = "https://apimanager-gjavbtbedsctbyg9.westeurope-01.azurewebsites.net/api/openai/v1"
 SETTINGS = [
+    {"key": "MODEL_SERVER", "secret": False, "default": DEFAULT_MODEL_SERVER},
     {"key": "API_URL", "secret": False},
     {"key": "API_MODEL", "secret": False},
     {"key": "API_KEY", "secret": True},
+    {"key": "GATEWAY_API_URL", "secret": False, "default": GATEWAY_URL},
+    {"key": "GATEWAY_API_MODEL", "secret": False, "default": "gpt-6-luna"},
+    {"key": "GATEWAY_API_KEY", "secret": True},
     {"key": "MISTRAL_API_KEY", "secret": True},
     {"key": "USER_NAME", "secret": False},    # the name shown at the bottom of the menu
 ]
@@ -185,14 +195,35 @@ def validate_updates(updates: dict) -> str | None:
     for key, value in updates.items():
         if '"' in value or "\n" in value or "\r" in value:
             return f"{key} kan ikke inneholde anførselstegn eller linjeskift"
-    if "API_URL" in updates:
-        url = updates["API_URL"]
-        if not url.startswith("http://") and not url.startswith("https://"):
+    for url_key in ["API_URL", "GATEWAY_API_URL"]:
+        url = updates.get(url_key, "")
+        if url != "" and not url.startswith("http://") and not url.startswith("https://"):
             return "Adressen må starte med http:// eller https://"
-    if "API_MODEL" in updates and updates["API_MODEL"] == "":
-        return "Modell kan ikke være tom"
+    if "MODEL_SERVER" in updates and updates["MODEL_SERVER"] not in MODEL_SERVERS:
+        return "Ukjent modellserver"
     if "USER_NAME" in updates and updates["USER_NAME"] == "":
         return "Navn kan ikke være tomt"
+    return None
+
+
+def chosen_server_problem(values: dict) -> str | None:
+    """
+    Checks that the chosen model server has its address, model and key.
+
+    Args:
+        values (dict): key -> value or None, the settings as they would stand after a save.
+
+    Returns:
+        str | None: The Norwegian error text, or None when the chosen server is complete.
+    """
+
+    server = values.get("MODEL_SERVER")
+    if server not in MODEL_SERVERS:
+        server = DEFAULT_MODEL_SERVER
+    for key in SERVER_KEYS[server]:
+        value = values.get(key)
+        if value is None or value == "":
+            return f"Adresse, modell og nøkkel må være fylt inn for {MODEL_SERVERS[server]}"
     return None
 
 
@@ -243,6 +274,8 @@ def _settings_state() -> dict:
         else:
             item["value"] = file_value
             item["masked"] = None
+            if file_value is None and "default" in setting:
+                item["value"] = setting["default"]
         settings.append(item)
 
     folders = []
@@ -310,6 +343,11 @@ def save_settings(payload: dict):
         return JSONResponse({"message": problem}, status_code=400)
     if len(updates) == 0:
         return {"message": "Ingenting å lagre", "state": _settings_state()}
+    after_save = read_config(CONFIG_FILE)
+    after_save.update(updates)
+    problem = chosen_server_problem(after_save)
+    if problem is not None:
+        return JSONResponse({"message": problem}, status_code=400)
 
     try:
         write_config(CONFIG_FILE, updates)
@@ -359,7 +397,11 @@ if __name__ == "__main__":
         CONFIG_FILE = Path(temp_dir) / "config.env"
 
         # a missing file reads as unset and is created on save
-        assert read_config(CONFIG_FILE) == {"API_URL": None, "API_MODEL": None, "API_KEY": None, "MISTRAL_API_KEY": None, "USER_NAME": None}
+        assert read_config(CONFIG_FILE) == {
+            "MODEL_SERVER": None, "API_URL": None, "API_MODEL": None, "API_KEY": None,
+            "GATEWAY_API_URL": None, "GATEWAY_API_MODEL": None, "GATEWAY_API_KEY": None,
+            "MISTRAL_API_KEY": None, "USER_NAME": None,
+        }
         write_config(CONFIG_FILE, {"API_URL": "http://server.test/v1", "API_MODEL": "model-a"})
         values = read_config(CONFIG_FILE)
         assert values["API_URL"] == "http://server.test/v1" and values["API_MODEL"] == "model-a"
@@ -381,8 +423,9 @@ if __name__ == "__main__":
         assert text.count("API_MODEL") == 1 and text.count("MISTRAL_API_KEY") == 1
         values = read_config(CONFIG_FILE)
         assert values == {
-            "API_URL": "http://old.test", "API_MODEL": "new-model",
-            "API_KEY": "sk-old-key-1234", "MISTRAL_API_KEY": "mstrl-new-key-9876", "USER_NAME": None,
+            "MODEL_SERVER": None, "API_URL": "http://old.test", "API_MODEL": "new-model",
+            "API_KEY": "sk-old-key-1234", "GATEWAY_API_URL": None, "GATEWAY_API_MODEL": None,
+            "GATEWAY_API_KEY": None, "MISTRAL_API_KEY": "mstrl-new-key-9876", "USER_NAME": None,
         }, values
 
         # masking and the rules
@@ -390,8 +433,14 @@ if __name__ == "__main__":
         assert mask("short") == "••••" and mask("sk-old-key-1234") == "••••1234"
         assert validate_updates({"API_URL": "ftp://x"}) is not None
         assert validate_updates({"API_URL": "https://x"}) is None
-        assert validate_updates({"API_MODEL": ""}) is not None
+        assert validate_updates({"GATEWAY_API_URL": "x"}) is not None
+        assert validate_updates({"MODEL_SERVER": "other"}) is not None
+        assert validate_updates({"MODEL_SERVER": "gateway"}) is None
         assert validate_updates({"API_KEY": 'a"b'}) is not None
+        # the chosen server must be complete; the other may be blank
+        assert chosen_server_problem({"MODEL_SERVER": None, "API_URL": "http://m", "API_MODEL": "m", "API_KEY": "k"}) is None
+        assert chosen_server_problem({"MODEL_SERVER": "gateway", "API_URL": "http://m", "API_MODEL": "m", "API_KEY": "k"}) is not None
+        assert chosen_server_problem({"MODEL_SERVER": "gateway", "GATEWAY_API_URL": "http://g", "GATEWAY_API_MODEL": "g", "GATEWAY_API_KEY": "k"}) is None
 
         # the state: secrets masked, the folders checked
         FOLDERS = [("Mappe", Path(temp_dir)), ("Mangler", Path(temp_dir) / "nei")]
@@ -401,6 +450,8 @@ if __name__ == "__main__":
             by_key[item["key"]] = item
         assert by_key["API_KEY"]["value"] is None and by_key["API_KEY"]["masked"] == "••••1234"
         assert by_key["API_URL"]["value"] == "http://old.test" and by_key["API_URL"]["is_set"] is True
+        assert by_key["MODEL_SERVER"]["value"] == "maggie" and by_key["MODEL_SERVER"]["is_set"] is False, "the default shows"
+        assert by_key["GATEWAY_API_MODEL"]["value"] == "gpt-6-luna"
         assert state["folders"][0]["exists"] is True and state["folders"][1]["exists"] is False
         assert "••••" not in text and "sk-old-key-1234" in text, "the file keeps the full key"
 
@@ -414,10 +465,16 @@ if __name__ == "__main__":
         assert read_config(CONFIG_FILE)["API_URL"] == "http://new.test/v1"
         assert applied[-1]["API_URL"] == "http://new.test/v1" and applied[-1]["API_KEY"] == "sk-old-key-1234"
         assert save_settings({"values": {"API_URL": "nope"}}).status_code == 400
+        assert save_settings({"values": {"MODEL_SERVER": "gateway"}}).status_code == 400, "the gateway has no key yet"
+        answer = save_settings({"values": {"MODEL_SERVER": "gateway", "GATEWAY_API_URL": "http://g.test/v1",
+                                           "GATEWAY_API_MODEL": "gpt-6-luna", "GATEWAY_API_KEY": "sk-gw-key-7777"}})
+        assert isinstance(answer, dict), answer.body
+        assert applied[-1]["MODEL_SERVER"] == "gateway" and applied[-1]["GATEWAY_API_KEY"] == "sk-gw-key-7777"
+        assert isinstance(save_settings({"values": {"MODEL_SERVER": "maggie"}}), dict), "back to maggie, whose values are there"
         run_is_active = lambda: True  # noqa: E731
         assert save_settings({"values": {"API_URL": "http://x.test"}}).status_code == 409
         run_is_active = lambda: False  # noqa: E731
-        assert save_settings({"values": {"API_MODEL": "  "}}).status_code == 400
+        assert save_settings({"values": {"API_MODEL": "  "}}).status_code == 400, "maggie is chosen and would lose its model"
         assert save_settings({"values": {}})["message"] == "Ingenting å lagre"
         assert save_settings({}).status_code == 400
         answer = save_settings({"values": {"API_KEY": "sk-fresh-key-5555"}})

@@ -8,13 +8,13 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from typing import TypedDict, Annotated, Sequence
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field
 from openai import LengthFinishReasonError
 
 from langchain_core.messages import BaseMessage, SystemMessage, HumanMessage, AIMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
-from langchain_openai import ChatOpenAI
+from model_client import build_chat_model
 
 from prompts import INVOICE_PROBLEM_IDENTIFICATION, INVOICE_PROBLEM_CLASSIFICATION, INVOICE_PROBLEM_RESOLUTION
 from xml_processor import parse_invoice_xml
@@ -112,7 +112,7 @@ class AgentState(TypedDict):
 
 def configure_clients() -> None:
     """
-    Build the model client and its three structured wrappers from the environment.
+    Build the model client for the chosen server (src/model_client.py) and its three structured wrappers from the environment.
 
     Called once at import, and again by the app when the settings are saved, so a new key or
     model is used by the next run without a restart. The nodes look the names up when they
@@ -120,15 +120,7 @@ def configure_clients() -> None:
     """
 
     global llm, llm_identifier, llm_classifier, llm_resolver
-    llm = ChatOpenAI(
-        model=os.environ["API_MODEL"],
-        base_url=os.environ["API_URL"],
-        api_key=SecretStr(os.environ["API_KEY"]),
-        temperature=0.1,         # 0.0 spirals, and frequency_penalty corrupted verbatim values (measured) - do not reintroduce either
-        timeout=120,
-        max_completion_tokens=7000,
-        max_retries=2,
-    )
+    llm = build_chat_model()
     llm_identifier = llm.with_structured_output(InvoiceProblems, include_raw=True)
     llm_classifier = llm.with_structured_output(LabeledProblems, include_raw=True)
     llm_resolver = llm.with_structured_output(ResolveStep, include_raw=True)

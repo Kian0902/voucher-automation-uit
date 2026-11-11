@@ -86,6 +86,9 @@ function renderStatusLine(state) {
   } else if (state.status === "error") {
     line.textContent = "Stoppet med feil";
   }
+  if (state.model_server_label && (state.status === "running" || state.status === "done")) {
+    line.textContent = line.textContent + " · " + state.model_server_label;
+  }
 }
 
 function renderPipeline(state) {
