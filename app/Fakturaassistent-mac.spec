@@ -42,7 +42,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter"],
+    # lxml is optional for openpyxl and 9 MB; the app works without it
+    excludes=["tkinter", "lxml"],
     noarchive=False,
 )
 

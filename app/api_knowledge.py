@@ -9,6 +9,7 @@ the tables. One user, one lock, one write at a time.
 """
 
 import csv
+import io
 import os
 import re
 import shutil
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
+import openpyxl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
@@ -329,9 +331,50 @@ def write_rows(report_id: str, rows: list) -> None:
     _install(report_id, temp_path)
 
 
+def excel_to_csv_bytes(file_bytes: bytes) -> bytes:
+    """
+    Converts the first sheet of an Excel workbook to the CSV the loader reads.
+
+    Args:
+        file_bytes (bytes): An .xlsx file as uploaded.
+
+    Returns:
+        bytes: UTF-8 CSV with commas, one line per sheet row, empty cells as "", rows without
+               any value left out.
+
+    Raises:
+        ValueError: Norwegian text when the bytes are not an Excel workbook.
+    """
+
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True, data_only=True)
+    except Exception as error:
+        # openpyxl raises several types for a damaged or foreign file
+        raise ValueError(f"Filen kan ikke leses som Excel-arbeidsbok: {error}")
+
+    sheet = workbook.worksheets[0]
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    for sheet_row in sheet.iter_rows(values_only=True):
+        row = []
+        for value in sheet_row:
+            if value is None:
+                row.append("")
+            elif isinstance(value, float) and value.is_integer():
+                # a koststed or IO typed as a number must not come out as 10000001.0
+                row.append(str(int(value)))
+            else:
+                row.append(str(value))
+        if "".join(row).strip() == "":
+            continue
+        writer.writerow(row)
+    workbook.close()
+    return buffer.getvalue().encode("utf-8")
+
+
 def install_upload(report_id: str, file_bytes: bytes) -> int:
     """
-    Checks an uploaded export and puts it in place of the report.
+    Checks an uploaded export, CSV or Excel, and puts it in place of the report.
 
     Args:
         report_id (str): "a", "b" or "c".
@@ -341,11 +384,14 @@ def install_upload(report_id: str, file_bytes: bytes) -> int:
         int: The number of data rows in the new file.
 
     Raises:
-        ValueError: Norwegian text when the file is not UTF-8, not CSV or has other columns;
-                    the current file is untouched.
+        ValueError: Norwegian text when the file is not UTF-8, not CSV or Excel, or has other
+                    columns; the current file is untouched.
     """
 
     report = REPORTS[report_id]
+    # an .xlsx is a zip archive; its signature is surer than the filename
+    if file_bytes[:4] == b"PK\x03\x04":
+        file_bytes = excel_to_csv_bytes(file_bytes)
     temp_path = REPORTS_DIR / (report["file"] + ".tmp")
     temp_path.write_bytes(file_bytes)
 
@@ -353,7 +399,7 @@ def install_upload(report_id: str, file_bytes: bytes) -> int:
         rows = lookup_data.read_rows(temp_path, report["header"])
     except UnicodeDecodeError:
         temp_path.unlink()
-        raise ValueError("Filen er ikke lagret som UTF-8. Eksporter den på nytt som CSV UTF-8")
+        raise ValueError("Filen er ikke lagret som UTF-8. Last opp Excel-filen (.xlsx), eller eksporter på nytt som CSV UTF-8")
     except csv.Error as error:
         temp_path.unlink()
         raise ValueError(f"Filen kan ikke leses som CSV: {error}")
@@ -876,5 +922,26 @@ if __name__ == "__main__":
         assert overview["reports"][2]["rows"] == 3 and overview["reports"][2]["loaded"] == 3, overview["reports"][2]
         assert overview["reports"][0]["loaded"] == 3, "the row without a name is not loaded"
         assert overview["reports"][0]["rows"] == 4
+
+        # an Excel workbook as the staff get it: a name with a comma, koststeder typed as numbers
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(HEADER_A)
+        sheet.append(["Etternavn, Fornavn", 10000001, "Enhet en"])
+        sheet.append(["Person Tre", 10000002.0, "Enhet to"])
+        sheet.append([None, None, None])
+        excel_buffer = io.BytesIO()
+        workbook.save(excel_buffer)
+        assert install_upload("a", excel_buffer.getvalue()) == 2
+        assert _finish_write("a") is None
+        assert lookup_data.lookup_person("Etternavn, Fornavn")["match_type"] == "exact"
+        third_person = lookup_data.lookup_person("Person Tre")["persons"][0]
+        assert third_person["koststed"] == "10000002", third_person
+        assert reports()["reports"][0]["rows"] == 2
+        try:
+            install_upload("a", b"PK\x03\x04 not a workbook")
+            assert False, "a broken zip must be refused"
+        except ValueError as error:
+            assert "Excel" in str(error)
 
     print("api_knowledge: all checks passed")

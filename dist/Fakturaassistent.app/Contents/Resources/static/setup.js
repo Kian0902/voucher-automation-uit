@@ -75,7 +75,7 @@ function renderReports() {
       + '<div class="small">Kolonner: ' + esc(report.columns.join(", ")) + "</div>"
       + status + "</div>"
       + '<label class="button button-secondary">Velg fil'
-      + '<input type="file" accept=".csv,text/csv" data-report="' + escAttr(report.id) + '" hidden></label>'
+      + '<input type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" data-report="' + escAttr(report.id) + '" hidden></label>'
       + "</div>");
   }
   reportRows.innerHTML = parts.join("");

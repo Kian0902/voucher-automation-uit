@@ -8,6 +8,7 @@ the process restarts.
 """
 
 import csv
+import io
 import re
 import time
 from pathlib import Path
@@ -77,14 +78,14 @@ def read_rows(csv_path: Path, expected_header: list) -> list:
     """
 
     with open(csv_path, encoding="utf-8-sig", newline="") as csv_file:
-        first_line = csv_file.readline()
-        csv_file.seek(0)
-        # Excel on a Norwegian PC writes "CSV UTF-8" with semicolons; the header line tells which
-        delimiter = ","
-        if first_line.count(";") > first_line.count(","):
-            delimiter = ";"
-        reader = csv.reader(csv_file, delimiter=delimiter)
-        all_rows = list(reader)
+        text = csv_file.read()
+    # Excel on a Norwegian PC writes "CSV UTF-8" with semicolons between the cells, but the
+    # header line may come with commas (exports of 2026-11-11), so the whole file decides
+    delimiter = ","
+    if text.count(";") > text.count(","):
+        delimiter = ";"
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    all_rows = list(reader)
 
     if len(all_rows) == 0:
         raise ValueError(f"{csv_path.name} is empty")
@@ -590,6 +591,16 @@ if __name__ == "__main__":
     assert lookup_koststed("123")["status"] == "invalid_format"
     assert lookup_ios_for_koststed("123")["status"] == "invalid_format"
     assert lookup_io("600000000")["format_valid"] is True
+
+    # a Norwegian Excel export: comma header line, semicolon rows, names as "Etternavn, Fornavn"
+    import tempfile
+    with tempfile.TemporaryDirectory() as temp_dir:
+        export_path = Path(temp_dir) / "a.csv"
+        export_text = "Navn ,Koststedsnr.,Koststedsnavn\r\nEtternavn, Fornavn;10000001;Enhet en;;\r\nAnnen, Person Mellom;10000002;;;\r\n"
+        export_path.write_text(export_text, encoding="utf-8-sig")
+        export_rows = read_rows(export_path, HEADER_A)
+        assert export_rows[0] == ["Etternavn, Fornavn", "10000001", "Enhet en"], export_rows[0]
+        assert export_rows[1] == ["Annen, Person Mellom", "10000002"], export_rows[1]
 
     print(f"persons:    {counts['persons']} rows ({tables.skipped_names} unusable name rows skipped)")
     print(f"ios:        {counts['ios']} rows ({tables.unknown_ios} with unknown koststed)")
