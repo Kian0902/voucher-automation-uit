@@ -87,6 +87,39 @@ function escAttr(value) {
 }
 
 // the rows are re-rendered on every poll, so the "Kopiert" feedback is kept by value, not by element
+// a supplier finding is shown for information only, under the table and outside the counts
+var SUPPLIER_CATEGORY = "Leverandør";
+
+function keyValueChip(label, value) {
+  var body = '<span class="key-missing">ikke funnet</span>';
+  if (value) {
+    body = '<span class="koststed-value key-chip">' + esc(value) + copyButton(value) + "</span>";
+  }
+  return '<div class="key-value"><span class="key-label">' + label + "</span>" + body + "</div>";
+}
+
+// the koststed and the IO of a finished invoice, big and copyable; nothing until the run is done
+function keyValuesHtml(keyValues) {
+  if (!keyValues) {
+    return "";
+  }
+  return '<div class="key-values">' + keyValueChip("Koststed", keyValues.koststed)
+    + keyValueChip("Innkjøpsordre (IO)", keyValues.io) + "</div>";
+}
+
+function supplierNoteHtml(problems) {
+  var notes = [];
+  for (var i = 0; i < problems.length; i++) {
+    if (problems[i].category === SUPPLIER_CATEGORY) {
+      notes.push(esc(problems[i].problem));
+    }
+  }
+  if (notes.length === 0) {
+    return "";
+  }
+  return '<p class="small supplier-note">Til orientering: ' + notes.join(" ") + "</p>";
+}
+
 function copyButton(value) {
   var icon = COPY_ICON;
   var title = "Kopier";

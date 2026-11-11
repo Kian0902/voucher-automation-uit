@@ -360,6 +360,8 @@ _IDLE_STATE = {
     "stages": [],       # [{"key", "title", "description", "status", "verdict"}], status pending | active | done | skipped
     "lookups": [],      # invoice runs: the lookups the resolver asked for
     "problems": [],     # invoice runs: the result rows
+    "fields": {},       # invoice runs: the invoice's own buyer_reference and order_reference
+    "key_values": None, # invoice runs, when done: {"koststed": str | None, "io": str | None}
     "rows": [],         # list runs: one entry per row of the screenshot
     "rows_done": 0,
     "resultat": None,   # invoice runs: løst | må bekreftes | uløst, decided by the koststed alone
@@ -991,6 +993,41 @@ def _fill_resolution_rows(resolutions) -> int:
     return resolved_count
 
 
+def _key_values(fields: dict, problems: list) -> dict:
+    """
+    The two values the staff copy into the ERP: the koststed and the IO of the invoice.
+
+    The invoice's own value counts when the reports know it. Otherwise the resolver's
+    suggestion for that field counts, whether løst or må bekreftes. None when neither exists.
+
+    Args:
+        fields (dict): buyer_reference and order_reference as the invoice had them.
+        problems (list[dict]): The result rows, with category, field, suggestion and status.
+
+    Returns:
+        dict: {"koststed": str | None, "io": str | None}.
+    """
+
+    koststed = None
+    own_koststed = fields.get("buyer_reference")
+    if own_koststed is not None and lookup_koststed(own_koststed)["status"] == "found":
+        koststed = own_koststed.strip()
+
+    io = None
+    own_io = fields.get("order_reference")
+    if own_io is not None and lookup_io(own_io)["status"] in ("found", "found_unknown_koststed"):
+        io = own_io.strip()
+
+    for row in problems:
+        if row["status"] not in ("løst", "må bekreftes") or row["suggestion"] == "":
+            continue
+        if koststed is None and (row["category"] == LABEL_NAMES[1] or row["field"] == "buyer_reference"):
+            koststed = row["suggestion"]
+        if io is None and (row["category"] == LABEL_NAMES[3] or row["field"] == "order_reference"):
+            io = row["suggestion"]
+    return {"koststed": koststed, "io": io}
+
+
 def _finalize_invoice_run(labeled_problems, resolutions) -> None:
     """
     Close an invoice run: final verdicts, result rows, run log and status.
@@ -1025,9 +1062,21 @@ def _finalize_invoice_run(labeled_problems, resolutions) -> None:
                     row["status"] = "uløst"
                     row["why"] = reason + ". Prøv igjen, eller slå opp manuelt."
     else:
-        resolved_count = _fill_resolution_rows(resolutions)
-        total_count = len(resolutions)
-        _set_stage("resolve", "done", f"{resolved_count} av {total_count} løst")
+        _fill_resolution_rows(resolutions)
+        # a supplier finding is shown for information only; it is not something to solve
+        resolved_count = 0
+        total_count = 0
+        with STATE_LOCK:
+            for row in STATE["problems"]:
+                if row["category"] == LABEL_NAMES[2]:
+                    continue
+                total_count = total_count + 1
+                if row["status"] == "løst":
+                    resolved_count = resolved_count + 1
+        if total_count == 0:
+            _set_stage("resolve", "done", "Ingenting å løse")
+        else:
+            _set_stage("resolve", "done", f"{resolved_count} av {total_count} løst")
 
     final_state = {"labeled_problems": labeled_problems, "resolutions": resolutions}
     agent_main.run_log.finish(final_state)
@@ -1036,6 +1085,7 @@ def _finalize_invoice_run(labeled_problems, resolutions) -> None:
     with STATE_LOCK:
         STATE["status"] = "done"
         STATE["resultat"] = _invoice_result(STATE["problems"])
+        STATE["key_values"] = _key_values(STATE["fields"], STATE["problems"])
         STATE["duration_seconds"] = agent_main.run_log.duration_seconds()
     _record_run("done", None)
 
@@ -1058,6 +1108,11 @@ def _run_invoice(xml_bytes: bytes, filename: str, run_id: int) -> None:
     try:
         invoice = _parse_uploaded_xml(xml_bytes)
         _sanitize_source_file(invoice, filename)
+        with STATE_LOCK:
+            STATE["fields"] = {
+                "buyer_reference": invoice.get("buyer_reference"),
+                "order_reference": invoice.get("order_reference"),
+            }
 
         invoice_id = invoice.get("invoice_id")
         if invoice_id is None:

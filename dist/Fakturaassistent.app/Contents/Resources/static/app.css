@@ -304,6 +304,12 @@ input:focus-visible, select:focus-visible, .cell-input:focus-visible { outline: 
   white-space: nowrap;
 }
 .suggestion-value { white-space: normal; }
+/* the koststed and the IO of an invoice, the two values the staff copy */
+.key-values { display: flex; flex-wrap: wrap; gap: 10px 36px; margin-bottom: 18px; }
+.key-label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+.key-chip { font-size: 18px; padding: 4px 6px 4px 12px; }
+.key-missing { color: var(--muted); font-size: 14px; line-height: 2.4; }
+.supplier-note { margin-top: 10px; color: var(--muted); }
 .search-main { font-size: 15px; }
 .copy-button {
   width: 26px;

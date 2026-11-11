@@ -366,6 +366,9 @@ function invoiceDetail(job, state) {
   var rows = [];
   for (var i = 0; i < state.problems.length; i++) {
     var problem = state.problems[i];
+    if (problem.category === SUPPLIER_CATEGORY) {
+      continue;
+    }
     var group = filterKeyOf(problem.status);
     counts.alle = counts.alle + 1;
     if (group !== null) {
@@ -416,7 +419,7 @@ function invoiceDetail(job, state) {
     }
   }
 
-  var parts = [];
+  var parts = [keyValuesHtml(state.key_values)];
   if (state.problems.length === 0) {
     // the verdict of the stage that looks for problems says why the table is empty
     var verdict = "Leter etter problemer ...";
@@ -435,6 +438,7 @@ function invoiceDetail(job, state) {
       + '<th class="split">Forslag</th><th>Status</th>'
       + "</tr></thead><tbody>" + rows.join("") + "</tbody></table>"
       + '<p class="note">Klikk en rad for begrunnelsen.</p>'
+      + supplierNoteHtml(state.problems)
     );
   }
   if (state.lookups.length > 0) {

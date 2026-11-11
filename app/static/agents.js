@@ -145,9 +145,14 @@ function renderProblems(state) {
     return;
   }
   resultsSection.hidden = false;
+  document.getElementById("key-values").innerHTML = keyValuesHtml(state.key_values);
+  document.getElementById("supplier-note").innerHTML = supplierNoteHtml(state.problems);
   var rows = [];
   for (var j = 0; j < state.problems.length; j++) {
     var row = state.problems[j];
+    if (row.category === SUPPLIER_CATEGORY) {
+      continue;
+    }
 
     var suggestionCell = "";
     if (row.suggestion !== "") {
@@ -176,6 +181,9 @@ function renderProblems(state) {
       + "<td>" + badgeFor(row.status) + "</td>"
       + "</tr>"
     );
+  }
+  if (rows.length === 0) {
+    rows.push('<tr><td colspan="3" class="empty">Ingenting å løse.</td></tr>');
   }
   resultRows.innerHTML = rows.join("");
 }
