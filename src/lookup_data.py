@@ -129,6 +129,9 @@ def _cell(row: list, index: int) -> str | None:
         str | None: The value, or None when the cell is blank.
     """
 
+    # a row ends early when its last columns were blank, since read_rows drops trailing blanks
+    if index >= len(row):
+        return None
     raw_value = row[index]
     stripped_value = raw_value.strip()
     if stripped_value == "":

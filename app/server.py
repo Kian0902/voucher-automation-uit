@@ -246,7 +246,8 @@ def _load_lookups():
     try:
         lookup_data.load_tables(REPORTS_DIR)
         DATA_ERROR = None
-    except (FileNotFoundError, ValueError) as error:
+    except Exception as error:
+        # the reports are files the staff bring in; whatever is wrong with one is shown, never a crash
         DATA_ERROR = f"Oppslagsdataene kunne ikke lastes: {error}"
     return DATA_ERROR
 

@@ -97,7 +97,7 @@ def reload_tables():
 
     try:
         lookup_data.load_tables(REPORTS_DIR)
-    except (FileNotFoundError, ValueError) as error:
+    except Exception as error:
         return str(error)
     return None
 
@@ -856,8 +856,10 @@ if __name__ == "__main__":
         assert _finish_write("c") is None
         assert lookup_data.lookup_koststed("10000006")["status"] == "found"
         # the header as one comma-joined cell above semicolon rows, as one export came
-        odd_header_file = "Koststedsnr.,Koststedsnavn ;;;\r\n10000005;Blå enhet;;;\r\n10000006;Grønn enhet;;;\r\n".encode("utf-8-sig")
-        assert install_upload("c", odd_header_file) == 2
+        odd_header_file = "Koststedsnr.,Koststedsnavn ;;;\r\n10000005;Blå enhet;;;\r\n10000006;Grønn enhet;;;\r\n10000007;;;;\r\n".encode("utf-8-sig")
+        assert install_upload("c", odd_header_file) == 3
+        assert _finish_write("c") is None, "a koststed without a name must load"
+        assert lookup_data.lookup_koststed("10000007")["status"] == "found"
 
         # a file that loads as CSV but fails the loader after install is rolled back
         broken = "Koststedsnr.,Koststedsnavn\r\n".encode("utf-8-sig")
@@ -871,7 +873,7 @@ if __name__ == "__main__":
         # the overview
         overview = reports()
         assert overview["locked"] is False
-        assert overview["reports"][2]["rows"] == 2 and overview["reports"][2]["loaded"] == 2
+        assert overview["reports"][2]["rows"] == 3 and overview["reports"][2]["loaded"] == 3, overview["reports"][2]
         assert overview["reports"][0]["loaded"] == 3, "the row without a name is not loaded"
         assert overview["reports"][0]["rows"] == 4
 
