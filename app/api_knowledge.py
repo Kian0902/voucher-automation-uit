@@ -851,10 +851,13 @@ if __name__ == "__main__":
         assert lookup_data.lookup_koststed("10000005")["status"] == "found"
         assert lookup_data.lookup_koststed("10000001")["status"] == "not_in_catalog"
         # the same export with semicolons, as Excel writes it on a Norwegian PC
-        semicolon_file = "Koststedsnr.;Koststedsnavn\r\n10000005;Blå enhet\r\n10000006;Grønn enhet\r\n".encode("utf-8-sig")
+        semicolon_file = "Koststedsnr.;Koststedsnavn;;;\r\n10000005;Blå enhet;;;\r\n10000006;Grønn enhet;;;\r\n".encode("utf-8-sig")
         assert install_upload("c", semicolon_file) == 2
         assert _finish_write("c") is None
         assert lookup_data.lookup_koststed("10000006")["status"] == "found"
+        # the header as one comma-joined cell above semicolon rows, as one export came
+        odd_header_file = "Koststedsnr.,Koststedsnavn ;;;\r\n10000005;Blå enhet;;;\r\n10000006;Grønn enhet;;;\r\n".encode("utf-8-sig")
+        assert install_upload("c", odd_header_file) == 2
 
         # a file that loads as CSV but fails the loader after install is rolled back
         broken = "Koststedsnr.,Koststedsnavn\r\n".encode("utf-8-sig")

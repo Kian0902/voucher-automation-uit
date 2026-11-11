@@ -89,9 +89,24 @@ def read_rows(csv_path: Path, expected_header: list) -> list:
     if len(all_rows) == 0:
         raise ValueError(f"{csv_path.name} is empty")
 
+    # Excel also writes the empty columns to the right of the data, as trailing separators on
+    # every line; those blank cells are not columns
+    for row in all_rows:
+        while len(row) > 0 and row[-1].strip() == "":
+            row.pop()
+
     header = []
     for column_name in all_rows[0]:
         header.append(column_name.strip())
+    # a header pasted as one comma-joined cell above semicolon rows (seen in an export of
+    # 2026-11-11): split it on the other separator
+    if len(header) == 1 and len(expected_header) > 1:
+        other_delimiter = ","
+        if delimiter == ",":
+            other_delimiter = ";"
+        header = []
+        for column_name in all_rows[0][0].split(other_delimiter):
+            header.append(column_name.strip())
     if header != expected_header:
         raise ValueError(f"{csv_path.name} has the columns {header}, expected {expected_header}")
 
