@@ -77,7 +77,13 @@ def read_rows(csv_path: Path, expected_header: list) -> list:
     """
 
     with open(csv_path, encoding="utf-8-sig", newline="") as csv_file:
-        reader = csv.reader(csv_file)
+        first_line = csv_file.readline()
+        csv_file.seek(0)
+        # Excel on a Norwegian PC writes "CSV UTF-8" with semicolons; the header line tells which
+        delimiter = ","
+        if first_line.count(";") > first_line.count(","):
+            delimiter = ";"
+        reader = csv.reader(csv_file, delimiter=delimiter)
         all_rows = list(reader)
 
     if len(all_rows) == 0:

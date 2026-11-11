@@ -361,7 +361,7 @@ def install_upload(report_id: str, file_bytes: bytes) -> int:
         temp_path.unlink()
         expected = ", ".join(report["header"])
         raise ValueError(
-            f"Filen må ha kolonnene {expected} i den rekkefølgen, med komma som skilletegn. "
+            f"Filen må ha kolonnene {expected} i den rekkefølgen, med komma eller semikolon som skilletegn. "
             f"Leseren sa: {error}"
         )
 
@@ -850,6 +850,11 @@ if __name__ == "__main__":
         assert _finish_write("c") is None
         assert lookup_data.lookup_koststed("10000005")["status"] == "found"
         assert lookup_data.lookup_koststed("10000001")["status"] == "not_in_catalog"
+        # the same export with semicolons, as Excel writes it on a Norwegian PC
+        semicolon_file = "Koststedsnr.;Koststedsnavn\r\n10000005;Blå enhet\r\n10000006;Grønn enhet\r\n".encode("utf-8-sig")
+        assert install_upload("c", semicolon_file) == 2
+        assert _finish_write("c") is None
+        assert lookup_data.lookup_koststed("10000006")["status"] == "found"
 
         # a file that loads as CSV but fails the loader after install is rolled back
         broken = "Koststedsnr.,Koststedsnavn\r\n".encode("utf-8-sig")
@@ -863,7 +868,7 @@ if __name__ == "__main__":
         # the overview
         overview = reports()
         assert overview["locked"] is False
-        assert overview["reports"][2]["rows"] == 1 and overview["reports"][2]["loaded"] == 1
+        assert overview["reports"][2]["rows"] == 2 and overview["reports"][2]["loaded"] == 2
         assert overview["reports"][0]["loaded"] == 3, "the row without a name is not loaded"
         assert overview["reports"][0]["rows"] == 4
 
