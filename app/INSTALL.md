@@ -25,7 +25,7 @@ The Windows program is built by GitHub, not on the developer Mac: every push to 
 2. Unzip it. The folder `Fakturaassistent` holds `Fakturaassistent.exe`, `README.txt` with these steps in Norwegian, and `data/koststed_tables/`. The folder can live anywhere, for example on the desktop.
 3. Double-click `Fakturaassistent.exe`. The first time, Windows may show "Windows protected your PC", since the program is unsigned: choose "More info", then "Run anyway". On a PC managed by IT the program may be blocked outright; then IT has to allow it.
 4. The app opens in the default browser on `http://127.0.0.1:8765`, on the setup page: the model server address, the model, the two keys and the three reports (Excel .xlsx or CSV), then "Fullfør oppsettet". It has no window of its own.
-5. "Avslutt appen" ends the program. Closing the browser tab does not. Starting the .exe while it already runs just opens the browser on the running one.
+5. Closing the last browser tab on the app ends the program a few seconds later, "Avslutt appen" ends it at once. Starting the .exe while it already runs just opens the browser on the running one.
 6. If the program does not start, `Fakturaassistent.log` next to the .exe says why.
 
 What differs from the Mac app: the launcher (`app/launcher_windows.py`, browser instead of a native window) and the build recipe (`app/Fakturaassistent-windows.spec`). Everything else is the same code. `scripts/check_build.py dist/Fakturaassistent` is the check the workflow runs on the built program.

@@ -8,8 +8,8 @@
    modellen og de to nøklene, velg de tre rapportfilene (Excel-filen eller CSV), og trykk "Fullfør oppsettet".
    Da er appen klar. Alt kan endres senere under Innstillinger og Kunnskapsbase.
 
-3. Du avslutter appen med "Avslutt appen" nederst i menyen.
-   Å lukke fanen i nettleseren avslutter den ikke.
+3. Du avslutter appen ved å lukke fanen i nettleseren, eller med "Avslutt appen"
+   nederst i menyen.
 
 Hele mappen kan flyttes dit du vil. Filene og mappene config.env, data, logs og output
 hører til appen og skal ligge sammen med Fakturaassistent.exe.

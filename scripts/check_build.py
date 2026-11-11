@@ -18,6 +18,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -62,6 +63,23 @@ def get_json(path: str) -> dict:
 
     with urllib.request.urlopen(URL + path, timeout=5) as response:
         return json.loads(response.read())
+
+
+def keep_page_alive(stop: threading.Event) -> None:
+    """
+    Ask /status twice a second, as an open page does, so the launcher's watchdog keeps the
+    program running while this script works.
+
+    Args:
+        stop (threading.Event): Set to end the polling.
+    """
+
+    while not stop.is_set():
+        try:
+            get_json("/status")
+        except (OSError, ValueError):
+            pass
+        stop.wait(0.5)
 
 
 def wait_for_status() -> dict:
@@ -113,6 +131,7 @@ if __name__ == "__main__":
     write_report(reports_folder / REPORT_C.name, HEADER_C, [["10000001", "Enhet en"]])
 
     process = None
+    page_closed = threading.Event()
     try:
         # 1. smoke mode: the program starts, loads the reports, writes its status and exits
         smoke_environment = dict(os.environ)
@@ -129,6 +148,7 @@ if __name__ == "__main__":
         run_environment["FAKTURAASSISTENT_NO_BROWSER"] = "1"
         process = subprocess.Popen([str(executable)], env=run_environment)
         state = wait_for_status()
+        threading.Thread(target=keep_page_alive, args=(page_closed,), daemon=True).start()
         assert state["status"] == "idle" and state["data_error"] is None, state
         assert state["can_quit"] is True, "browser mode offers the quit button"
         assert sorted(state["settings_missing"]) == ["API_KEY", "API_MODEL", "API_URL", "MISTRAL_API_KEY"]
@@ -160,6 +180,8 @@ if __name__ == "__main__":
         if process is not None:
             process.kill()
         show_log(program_folder)
+        # the program ends by itself a few seconds after the last page stops asking
+        page_closed.set()
         # leave the folder as the build made it
         for name in ["smoke.txt", "config.env", "Fakturaassistent.log"]:
             leftover = program_folder / name

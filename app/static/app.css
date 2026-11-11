@@ -526,7 +526,19 @@ tr.row-deleting td { background: var(--danger-soft); }
 .queue-row { cursor: pointer; }
 .queue-row:hover td { background: var(--surface-2); }
 .queue-row.selected td { background: var(--accent-soft); }
-.queue-file { font-weight: 600; word-break: break-all; }
+.queue-file { font-weight: 500; word-break: break-all; }
+/* a finished file the staff have not opened yet, marked like unread mail */
+.queue-row.unseen .queue-file { font-weight: 700; color: var(--ink); }
+.queue-row.unseen .queue-file::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
 /* a thin moving line under the file that is being processed */
 .queue-row.status-running .queue-file { position: relative; }
 .queue-row.status-running .queue-file::after {

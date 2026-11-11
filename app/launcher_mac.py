@@ -91,5 +91,8 @@ if __name__ == "__main__":
 
     # the knowledge base's download button: the window shows a save dialog for the CSV
     webview.settings["ALLOW_DOWNLOADS"] = True
-    webview.create_window(APP_TITLE, f"http://{HOST}:{port}/", width=WINDOW_WIDTH, height=WINDOW_HEIGHT)
+    # text_select: pywebview blocks marking text by default; the staff copy values with the mouse
+    webview.create_window(
+        APP_TITLE, f"http://{HOST}:{port}/", width=WINDOW_WIDTH, height=WINDOW_HEIGHT, text_select=True,
+    )
     webview.start()

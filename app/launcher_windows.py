@@ -6,9 +6,10 @@ browser instead: the native window there depends on WebView2 and .NET, and where
 missing it falls back to the old Internet Explorer engine, which cannot run the pages. A browser
 is always there and always current.
 
-The program has no window of its own. The sidebar gets an "Avslutt appen" button that ends it;
-closing the browser tab leaves it running. Starting it again while it runs opens the browser on
-the instance that is already there, so there is never more than one.
+The program has no window of its own. It ends by itself a few seconds after the last browser
+tab on it is closed, or at once through the "Avslutt appen" button in the sidebar. Starting it
+again while it runs opens the browser on the instance that is already there, so there is never
+more than one.
 
 Prints and errors go to Fakturaassistent.log next to the program, since a windowed program on
 Windows has no console to print to.
@@ -33,6 +34,11 @@ SMOKE_VARIABLE = "FAKTURAASSISTENT_SMOKE"
 # set to 1 to start for real but without opening a browser, for the build's own test
 NO_BROWSER_VARIABLE = "FAKTURAASSISTENT_NO_BROWSER"
 START_TIMEOUT_SECONDS = 60
+# the pages ask /status twice a second; a longer silence means the last tab is closed
+PAGE_GONE_SECONDS = 5
+# the browser can be slow to come up; with no page at all after this long, the program ends
+FIRST_PAGE_TIMEOUT_SECONDS = 120
+WATCH_INTERVAL_SECONDS = 1
 LOG_NAME = "Fakturaassistent.log"
 SMOKE_RESULT_NAME = "smoke.txt"
 
@@ -165,6 +171,37 @@ def wait_until_listening(port: int) -> None:
     raise RuntimeError(f"the server did not start within {START_TIMEOUT_SECONDS} s")
 
 
+def wait_for_quit_or_closed_tab() -> None:
+    """
+    Block until "Avslutt appen" was pressed or no browser tab shows the app any more.
+
+    The server notes when a page last asked /status. Once a page has shown, PAGE_GONE_SECONDS
+    of silence means the last tab is closed. A gap in this loop itself, from a laptop that was
+    asleep, is not silence from the page, so the clock restarts after it.
+    """
+
+    started = time.monotonic()
+    last_check = started
+    while not server.QUIT_REQUESTED.wait(WATCH_INTERVAL_SECONDS):
+        now = time.monotonic()
+        machine_slept = now - last_check > 2 * WATCH_INTERVAL_SECONDS
+        last_check = now
+        if machine_slept:
+            if server.LAST_PAGE_SEEN is not None:
+                server.LAST_PAGE_SEEN = now
+            continue
+        if server.LAST_PAGE_SEEN is None:
+            if now - started > FIRST_PAGE_TIMEOUT_SECONDS:
+                print(f"no page showed within {FIRST_PAGE_TIMEOUT_SECONDS} s, ending")
+                return
+            continue
+        if now - server.LAST_PAGE_SEEN > PAGE_GONE_SECONDS:
+            print("the last browser tab is closed, ending")
+            return
+    # let the answer to /quit reach the page before the process ends
+    time.sleep(0.5)
+
+
 def run_smoke_check(port: int) -> int:
     """
     Ask the started server for its status and write the answer next to the program.
@@ -214,7 +251,5 @@ if __name__ == "__main__":
     if open_browser:
         webbrowser.open(f"http://{HOST}:{port}/")
 
-    server.QUIT_REQUESTED.wait()
-    # let the answer to /quit reach the page before the process ends
-    time.sleep(0.5)
+    wait_for_quit_or_closed_tab()
     sys.exit(0)

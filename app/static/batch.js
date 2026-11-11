@@ -1,6 +1,7 @@
-// The batch page: many files dropped into a queue that the server works through one at a
-// time. The table has one line per file; the panel under it shows the rows of the selected
-// file, live for the one that is running, and stays on that file until the staff pick another.
+// The batch page: many files dropped into a queue, each worked through from the moment the
+// staff press Start on it or Start alle. The table has one line per file, bold with a dot until it has
+// been opened; the panel under it shows the rows of the selected file, live for the one that
+// is running, and stays on that file until the staff pick another.
 // A part of the page is rebuilt only when its HTML changed, so a button under the mouse stays put.
 
 var dropzone = document.getElementById("dropzone");
@@ -9,6 +10,7 @@ var errorBanner = document.getElementById("batch-error");
 var settingsNote = document.getElementById("settings-note");
 var addNotes = document.getElementById("add-notes");
 var summaryLine = document.getElementById("summary");
+var startButton = document.getElementById("start-button");
 var stopButton = document.getElementById("stop-button");
 var stopAllButton = document.getElementById("stop-all-button");
 var clearButton = document.getElementById("clear-button");
@@ -22,7 +24,7 @@ var detailBody = document.getElementById("detail-body");
 var BATCH_POLL_MS = 500;
 var NOTE_MS = 8000;
 var KIND_NAMES = { faktura: "Faktura", liste: "Liste" };
-var STATUS_NAMES = { waiting: "venter", running: "pågår", done: "ferdig", error: "feilet", stopped: "stoppet" };
+var STATUS_NAMES = { waiting: "venter på start", running: "pågår", done: "ferdig", error: "feilet", stopped: "stoppet" };
 var FILTERS = [
   { key: "alle", title: "Alle" },
   { key: "løst", title: "Løst" },
@@ -138,8 +140,11 @@ function renderSummary() {
   if (counts.running > 0) {
     text = text + ", " + counts.running + " pågår";
   }
+  if (counts.queued > 0) {
+    text = text + ", " + counts.queued + " i kø";
+  }
   if (counts.waiting > 0) {
-    text = text + ", " + counts.waiting + " venter";
+    text = text + ", " + counts.waiting + " venter på start";
   }
   if (counts.error > 0) {
     text = text + ", " + counts.error + " feilet";
@@ -149,8 +154,10 @@ function renderSummary() {
   }
   setHtml(summaryLine, "<span>" + esc(text) + "</span> " + countBadges(view.totals));
 
+  startButton.textContent = "Start alle (" + counts.waiting + ")";
+  startButton.hidden = counts.waiting === 0;
   stopButton.hidden = counts.running === 0;
-  stopAllButton.hidden = counts.running + counts.waiting < 2;
+  stopAllButton.hidden = counts.running + counts.queued < 2;
   clearButton.hidden = counts.done + counts.error + counts.stopped === 0;
 }
 
@@ -162,14 +169,17 @@ function renderQueue() {
     if (job.id === view.selectedId) {
       className = className + " selected";
     }
+    if (!job.seen && job.status !== "waiting" && job.status !== "running") {
+      className = className + " unseen";
+    }
 
     var statusCell;
     if (job.status === "running") {
       statusCell = "<em>" + esc(job.progress || "pågår") + " ...</em>";
     } else if (job.status === "error") {
       statusCell = '<span class="badge badge-open">feilet</span>';
-    } else if (job.status === "stopped" && job.error === "Ikke startet") {
-      statusCell = "stoppet, ikke startet";
+    } else if (job.status === "waiting" && job.go) {
+      statusCell = "i kø";
     } else {
       statusCell = esc(STATUS_NAMES[job.status]);
     }
@@ -183,6 +193,9 @@ function renderQueue() {
     }
 
     var actions = "";
+    if (job.status === "waiting" && !job.go) {
+      actions = actions + '<button type="button" data-action="start" data-id="' + job.id + '">Start</button> ';
+    }
     if (job.can_retry) {
       actions = actions + '<button type="button" class="button-secondary" data-action="retry" data-id="' + job.id + '">Prøv igjen</button> ';
     }
@@ -445,7 +458,10 @@ function renderDetail() {
   if (state === null) {
     var waitingText = "Henter resultatet ...";
     if (job.status === "waiting") {
-      waitingText = "Venter i køen.";
+      waitingText = "Venter på start.";
+      if (job.go) {
+        waitingText = "Står i kø.";
+      }
     } else if (job.status === "running") {
       waitingText = "Starter ...";
     } else if (job.error) {
@@ -576,6 +592,7 @@ dropzone.addEventListener("drop", function (event) {
   }
 });
 
+startButton.addEventListener("click", function () { postAction("/batch/start"); });
 stopButton.addEventListener("click", function () { postAction("/batch/stop"); });
 stopAllButton.addEventListener("click", function () { postAction("/batch/stop-all"); });
 clearButton.addEventListener("click", function () {
@@ -588,7 +605,9 @@ queueBody.addEventListener("click", function (event) {
   if (button !== null) {
     var jobId = parseInt(button.dataset.id, 10);
     delete view.results[jobId];
-    if (button.dataset.action === "retry") {
+    if (button.dataset.action === "start") {
+      postAction("/batch/start?id=" + jobId);
+    } else if (button.dataset.action === "retry") {
       postAction("/batch/retry?id=" + jobId);
     } else {
       postAction("/batch/remove?id=" + jobId);
@@ -596,11 +615,13 @@ queueBody.addEventListener("click", function (event) {
     return;
   }
   var row = event.target.closest("tr[data-id]");
-  if (row === null) {
+  if (row === null || !window.getSelection().isCollapsed) {
+    // a drag that marks text ends with a click too; that one must not change the page
     return;
   }
   view.selectedId = parseInt(row.dataset.id, 10);
   renderAll();
+  postAction("/batch/seen?id=" + view.selectedId);
 });
 
 detailFilters.addEventListener("click", function (event) {
@@ -617,7 +638,7 @@ detailBody.addEventListener("click", function (event) {
     return;
   }
   var row = event.target.closest("tr[data-key]");
-  if (row === null) {
+  if (row === null || !window.getSelection().isCollapsed) {
     return;
   }
   var key = row.dataset.key;

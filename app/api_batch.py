@@ -114,6 +114,8 @@ def new_job(filename: str, kind: str, data: bytes) -> dict:
         "summary": None,         # counts per result label, set when the job ends
         "result": None,          # the final state of the run, for the detail view
         "run_id": None,
+        "seen": False,           # set when the staff have opened the file in the table
+        "go": False,             # set by Start; a waiting file runs only when it is on
         "data": data,
     }
     _next_id = _next_id + 1
@@ -204,6 +206,8 @@ def job_for_page(job: dict) -> dict:
         "summary": job["summary"],
         "progress": None,
         "run_id": job["run_id"],
+        "seen": job["seen"],
+        "go": job["go"],
         "can_retry": job["status"] in ("error", "stopped") and job["data"] is not None,
     }
 
@@ -227,7 +231,8 @@ def find_job(job_id: int):
 
 def has_unfinished_jobs() -> bool:
     """
-    Whether a file is being processed or still waits in the queue.
+    Whether a file is being processed or stands in line for it. A file that only waits for
+    Start is not work left.
 
     Returns:
         bool: True when the queue has work left.
@@ -235,7 +240,9 @@ def has_unfinished_jobs() -> bool:
 
     with JOBS_LOCK:
         for job in JOBS:
-            if job["status"] in ("waiting", "running"):
+            if job["status"] == "running":
+                return True
+            if job["status"] == "waiting" and job["go"]:
                 return True
     return False
 
@@ -244,15 +251,15 @@ def has_unfinished_jobs() -> bool:
 
 def _next_waiting_job():
     """
-    The first job still waiting, in queue order.
+    The first job in line, in queue order: waiting and started.
 
     Returns:
-        dict | None: The job, or None when nothing waits.
+        dict | None: The job, or None when no started file waits.
     """
 
     with JOBS_LOCK:
         for job in JOBS:
-            if job["status"] == "waiting":
+            if job["status"] == "waiting" and job["go"]:
                 return job
     return None
 
@@ -363,8 +370,60 @@ async def add(request: Request, filename: str = "fil"):
         job = new_job(filename, kind, data)
         JOBS.append(job)
         answer = job_for_page(job)
-    _ensure_worker()
     return {"job": answer}
+
+
+@router.post("/batch/start")
+def start_queue(id: int | None = None):
+    """
+    Put one waiting file, or every waiting file, in line. The worker takes them in queue order.
+
+    Args:
+        id (int | None): The job to start, or None for all waiting files.
+
+    Returns:
+        dict: How many files were put in line, or a 404 or 409 answer.
+    """
+
+    started_count = 0
+    with JOBS_LOCK:
+        if id is not None:
+            job = find_job(id)
+            if job is None:
+                return JSONResponse({"message": "Filen er ikke i køen lenger"}, status_code=404)
+            if job["status"] != "waiting" or job["go"]:
+                return JSONResponse({"message": "Filen venter ikke på start"}, status_code=409)
+            job["go"] = True
+            started_count = 1
+        else:
+            for job in JOBS:
+                if job["status"] == "waiting" and not job["go"]:
+                    job["go"] = True
+                    started_count = started_count + 1
+    if started_count == 0:
+        return JSONResponse({"message": "Ingen filer venter på start"}, status_code=409)
+    _ensure_worker()
+    return {"message": "Behandlingen er startet", "started": started_count}
+
+
+@router.post("/batch/seen")
+def mark_seen(id: int):
+    """
+    Note that the staff have opened a file in the table, so it is no longer shown as unread.
+
+    Args:
+        id (int): The job's id.
+
+    Returns:
+        A confirmation, or a 404 answer.
+    """
+
+    with JOBS_LOCK:
+        job = find_job(id)
+        if job is None:
+            return JSONResponse({"message": "Filen er ikke i køen lenger"}, status_code=404)
+        job["seen"] = True
+    return {"message": "Åpnet"}
 
 
 @router.get("/batch/state")
@@ -373,12 +432,13 @@ def state() -> dict:
     The queue for the page: every job, the counts per status and the totals per result.
 
     Returns:
-        dict: jobs (list), counts (per status, plus total) and totals (per result label).
+        dict: jobs (list), counts (per status, plus total and queued), totals (per result label).
     """
 
     _, live_state = read_state()
     jobs = []
-    counts = {"total": 0, "waiting": 0, "running": 0, "done": 0, "error": 0, "stopped": 0}
+    # "waiting" is a file that waits for Start, "queued" one that is in line
+    counts = {"total": 0, "waiting": 0, "queued": 0, "running": 0, "done": 0, "error": 0, "stopped": 0}
     totals = {}
     for label in RESULT_LABELS:
         totals[label] = 0
@@ -390,7 +450,10 @@ def state() -> dict:
                 item["progress"] = progress_text(job["kind"], live_state)
             jobs.append(item)
             counts["total"] = counts["total"] + 1
-            counts[job["status"]] = counts[job["status"]] + 1
+            if job["status"] == "waiting" and job["go"]:
+                counts["queued"] = counts["queued"] + 1
+            else:
+                counts[job["status"]] = counts[job["status"]] + 1
             if job["summary"] is not None:
                 for label in RESULT_LABELS:
                     totals[label] = totals[label] + job["summary"][label]
@@ -438,21 +501,17 @@ def stop_current():
 @router.post("/batch/stop-all")
 def stop_all():
     """
-    Stop the running job and take every waiting file out of the line.
-
-    The waiting files stay in the table as stopped, so the staff see what was not processed
-    and can start any of them again.
+    Stop the running job and take every file in line out of it: they wait for Start again.
 
     Returns:
-        dict: How many waiting files were stopped.
+        dict: How many files were taken out of the line.
     """
 
     stopped_count = 0
     with JOBS_LOCK:
         for job in JOBS:
-            if job["status"] == "waiting":
-                job["status"] = "stopped"
-                job["error"] = "Ikke startet"
+            if job["status"] == "waiting" and job["go"]:
+                job["go"] = False
                 stopped_count = stopped_count + 1
     stop_run()
     return {"message": "Køen er stoppet", "stopped": stopped_count}
@@ -482,8 +541,9 @@ def retry(id: int):
         job["summary"] = None
         job["result"] = None
         job["run_id"] = None
-    _ensure_worker()
-    return {"message": "Filen står i kø igjen"}
+        job["seen"] = False
+        job["go"] = False
+    return {"message": "Filen venter på start igjen"}
 
 
 @router.post("/batch/remove")
@@ -578,11 +638,10 @@ if __name__ == "__main__":
             return True
 
     def add_job(filename: str, data: bytes) -> dict:
-        """What /batch/add does after reading the body."""
+        """What /batch/add does after reading the body: the file waits, nothing starts."""
         with JOBS_LOCK:
             job = new_job(filename, kind_of(filename), data)
             JOBS.append(job)
-        _ensure_worker()
         return job
 
     def wait_for(condition, seconds: float = 5.0) -> None:
@@ -600,12 +659,17 @@ if __name__ == "__main__":
 
     assert kind_of("a.XML") == "faktura" and kind_of("b.png") == "liste" and kind_of("c.pdf") is None
 
-    # three files run one after the other, in order, and a broken one does not stop the rest
+    # the files wait until the queue is started, then run one after the other, in order, and a
+    # broken one does not stop the rest
     first = add_job("a.png", b"x")
     second = add_job("b.xml", b"x")
     third = add_job("c.png", b"broken")
     fourth = add_job("d.xml", b"x")
+    time.sleep(0.2)
+    assert first["status"] == "waiting" and has_unfinished_jobs() is False, "nothing runs before start"
+    assert start_queue()["started"] == 4
     wait_for(lambda: fourth["status"] == "done")
+    assert start_queue().status_code == 409, "nothing left to start"
     assert first["status"] == "done" and second["status"] == "done"
     assert first["run_id"] < second["run_id"] < fourth["run_id"], "one at a time, in order"
     assert third["status"] == "error" and "Oppslagsdataene" in third["error"]
@@ -615,16 +679,32 @@ if __name__ == "__main__":
     assert third["data"] is not None, "a failed file is kept for a retry"
 
     overview = state()
-    assert overview["counts"] == {"total": 4, "waiting": 0, "running": 0, "done": 3, "error": 1, "stopped": 0}
+    assert overview["counts"] == {"total": 4, "waiting": 0, "queued": 0, "running": 0, "done": 3, "error": 1, "stopped": 0}
     assert overview["totals"]["løst"] == 1 and overview["totals"]["må bekreftes"] == 2
     assert overview["jobs"][2]["can_retry"] is True and overview["jobs"][0]["can_retry"] is False
     assert job_result(first["id"])["result"]["status"] == "done"
     assert job_result(999).status_code == 404
 
-    # stopping the running file lets the next one start
+    # a finished file is unread until the staff open it
+    assert overview["jobs"][0]["seen"] is False
+    assert isinstance(mark_seen(first["id"]), dict)
+    assert state()["jobs"][0]["seen"] is True
+    assert mark_seen(999).status_code == 404
+
+    # one file started alone runs while the others keep waiting for start
     slow = add_job("slow.png", b"slow")
     after = add_job("after.xml", b"x")
+    assert start_queue(after["id"])["started"] == 1
+    wait_for(lambda: after["status"] == "done")
+    assert slow["status"] == "waiting" and slow["go"] is False
+    assert start_queue(after["id"]).status_code == 409, "a finished file is not waiting"
+    assert start_queue(999).status_code == 404
+
+    # stopping the running file lets the next one start
+    after = add_job("after2.xml", b"x")
+    start_queue()
     wait_for(lambda: slow["status"] == "running")
+    assert state()["counts"]["queued"] == 1 and state()["counts"]["waiting"] == 0
     overview = state()
     assert overview["jobs"][4]["progress"] == "rad 1 av 2", overview["jobs"][4]
     assert remove(slow["id"]).status_code == 409, "a running file cannot be removed"
@@ -632,24 +712,35 @@ if __name__ == "__main__":
     wait_for(lambda: after["status"] == "done")
     assert slow["status"] == "stopped" and slow["summary"]["handled"] == 0
 
-    # stop all: the running file stops, the waiting ones are taken out of the line
+    # stop all: the running file stops, the files in line wait for start again
     slow_two = add_job("slow2.png", b"slow")
     waiting_one = add_job("w1.xml", b"x")
     waiting_two = add_job("w2.xml", b"x")
+    start_queue()
     wait_for(lambda: slow_two["status"] == "running")
     answer = stop_all()
     assert answer["stopped"] == 2
     wait_for(lambda: slow_two["status"] == "stopped")
-    assert waiting_one["status"] == "stopped" and waiting_one["error"] == "Ikke startet"
+    assert waiting_one["status"] == "waiting" and waiting_one["go"] is False
+    assert has_unfinished_jobs() is False
     assert stop_current().status_code == 409
-
-    # retry puts a stopped file back, clear removes what is finished
-    assert isinstance(retry(waiting_one["id"]), dict)
+    start_queue(waiting_one["id"])
     wait_for(lambda: waiting_one["status"] == "done")
+    assert waiting_two["status"] == "waiting"
+
+    # retry puts a stopped file back to waiting for start; clear removes what is finished
+    mark_seen(slow_two["id"])
+    assert isinstance(retry(slow_two["id"]), dict)
+    time.sleep(0.2)
+    assert slow_two["status"] == "waiting" and slow_two["seen"] is False and slow_two["go"] is False
+    start_queue(slow_two["id"])
+    wait_for(lambda: slow_two["status"] == "running")
+    stop_current()
+    wait_for(lambda: slow_two["status"] == "stopped")
     assert retry(first["id"]).status_code == 409, "a finished file has no content left to run"
     assert isinstance(remove(waiting_two["id"]), dict)
     answer = clear()
-    assert answer["removed"] == 8, answer
+    assert answer["removed"] == 9, answer
     assert JOBS == []
 
     print("api_batch: all checks passed")

@@ -1352,6 +1352,8 @@ def status() -> dict:
     snapshot["setup_needed"] = _setup_needed()
     snapshot["run_id"] = RUN_ID
     snapshot["can_quit"] = BROWSER_MODE
+    global LAST_PAGE_SEEN
+    LAST_PAGE_SEEN = time.monotonic()
     return snapshot
 
 
@@ -1431,9 +1433,11 @@ def search(query: str):
 
 
 # Set by the Windows launcher: the app runs in the staff's browser, has no window of its own
-# and therefore needs its own way to quit. The launcher waits on QUIT_REQUESTED.
+# and therefore needs its own way to quit. The launcher waits on QUIT_REQUESTED and ends the
+# program when LAST_PAGE_SEEN, the monotonic time of the last /status call, falls behind.
 BROWSER_MODE = False
 QUIT_REQUESTED = threading.Event()
+LAST_PAGE_SEEN = None
 
 
 @app.post("/quit")
