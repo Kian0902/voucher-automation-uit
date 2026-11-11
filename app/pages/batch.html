@@ -14,6 +14,9 @@
   <div id="batch-error" class="error-banner" hidden></div>
   <div id="settings-note" class="lock-note" hidden></div>
 
+  <div id="layout">
+  <div id="left-column">
+
   <div id="dropzone">
     <span class="drop-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V5"/><path d="m7 10 5-5 5 5"/><path d="M5 19h14"/></svg></span>
     <strong class="drop-title">Slipp fakturaer (XML) og skjermbilder av listen (PNG) her</strong>
@@ -47,8 +50,23 @@
     </div>
     <div id="detail-body"></div>
   </section>
+
+  </div>
+
+  <aside id="search-panel">
+    <h2>Søk i rapportene</h2>
+    <p class="search-hint">IO, koststed eller personnavn</p>
+    <form id="search-form">
+      <input id="search-input" type="text" autocomplete="off">
+      <button type="submit">Søk</button>
+    </form>
+    <div id="search-result" hidden></div>
+  </aside>
+
+  </div>
 </main>
 <script src="/static/shell.js"></script>
+<script src="/static/search.js"></script>
 <script src="/static/batch.js"></script>
 </body>
 </html>

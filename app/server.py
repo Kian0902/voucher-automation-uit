@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 
 import uvicorn
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -69,7 +69,7 @@ sys.path.insert(0, str(APP_ROOT / "src"))
 sys.path.insert(0, str(APP_DIR))
 
 # the model keys must be in the environment before main.py is imported, since it reads them at import
-SETTING_KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY"]
+SETTING_KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY", "USER_NAME"]
 CONFIG_TEMPLATE = (
     "# Fakturaassistent: innstillinger. Filen ligger ved siden av Fakturaassistent.app.\n"
     "# Fyll inn verdiene mellom anførselstegnene, eller bruk Innstillinger i appen.\n"
@@ -77,6 +77,8 @@ CONFIG_TEMPLATE = (
     'API_MODEL=""\n'
     'API_KEY=""\n'
     'MISTRAL_API_KEY=""\n'
+    "# navnet som vises nederst i menyen\n"
+    'USER_NAME=""\n'
 )
 # an address that points nowhere on this Mac: a run with missing settings fails at once and
 # can never send invoice data to a server nobody chose
@@ -99,8 +101,18 @@ load_dotenv(CONFIG_FILE)
 # agents can be imported and the app starts, and the pages say which settings are missing
 STARTED_VALUES = {}
 SETTINGS_MISSING = []
+# the name is read from the file alone: a system variable of the same name (seen on a Mac)
+# must not become the name in the menu
+FILE_VALUES = {}
+if CONFIG_FILE.is_file():
+    FILE_VALUES = dotenv_values(CONFIG_FILE)
 for setting_key in SETTING_KEYS:
-    setting_value = os.environ.get(setting_key, "")
+    if setting_key == "USER_NAME":
+        setting_value = FILE_VALUES.get("USER_NAME")
+        if setting_value is None:
+            setting_value = ""
+    else:
+        setting_value = os.environ.get(setting_key, "")
     if setting_value == "":
         STARTED_VALUES[setting_key] = None
         SETTINGS_MISSING.append(setting_key)
@@ -110,6 +122,12 @@ for setting_key in SETTING_KEYS:
             os.environ[setting_key] = MISSING_VALUE
     else:
         STARTED_VALUES[setting_key] = setting_value
+
+# the name shown at the bottom of the menu, from the config file only (the environment holds
+# the "mangler" placeholder when it is missing, which must never be shown)
+USER_NAME = STARTED_VALUES["USER_NAME"]
+if USER_NAME is None:
+    USER_NAME = ""
 
 APP_TITLE = "Fakturaassistent"
 REPORTS_DIR = APP_ROOT / "data" / "koststed_tables"
@@ -358,7 +376,11 @@ def _apply_settings(values: dict) -> None:
         values (dict): key -> value or None, every setting as the config file now has it.
     """
 
-    global SETTINGS_MISSING
+    global SETTINGS_MISSING, USER_NAME
+    name = values.get("USER_NAME")
+    if name is None:
+        name = ""
+    USER_NAME = name
     missing = []
     for setting_key in SETTING_KEYS:
         setting_value = values.get(setting_key) or ""
@@ -1352,6 +1374,7 @@ def status() -> dict:
     snapshot["setup_needed"] = _setup_needed()
     snapshot["run_id"] = RUN_ID
     snapshot["can_quit"] = BROWSER_MODE
+    snapshot["user_name"] = USER_NAME.strip()
     global LAST_PAGE_SEEN
     LAST_PAGE_SEEN = time.monotonic()
     return snapshot

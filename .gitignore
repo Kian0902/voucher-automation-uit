@@ -44,3 +44,6 @@ dist/Fakturaassistent/
 
 # macOS, last so it also wins inside the .app
 .DS_Store
+
+# screenshots of the UiT ApiManager gateway docs: show an email and a key prefix
+screenshots_ApiManager/

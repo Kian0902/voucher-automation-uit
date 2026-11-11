@@ -188,7 +188,7 @@ function renderSidebar() {
     return;  // the setup page has no sidebar
   }
   var currentPage = document.body.dataset.page;
-  var parts = ['<div class="brand"><span class="brand-mark">' + BRAND_MARK + "</span>Fakturaassistent</div>"];
+  var parts = ['<div class="brand"><span class="brand-mark">' + BRAND_MARK + '</span><span class="brand-title">Fakturaassistent</span></div>'];
   for (var i = 0; i < PAGES.length; i++) {
     var page = PAGES[i];
     var className = "nav-link";
@@ -202,11 +202,46 @@ function renderSidebar() {
     } else if (page.path === "/batch") {
       dot = '<span class="run-dot" id="run-dot-batch"></span>';
     }
-    parts.push('<a class="' + className + '" href="' + page.path + '">'
+    // the title shows as hover text when the sidebar is narrowed to the icons
+    parts.push('<a class="' + className + '" href="' + page.path + '" title="' + escAttr(page.title) + '">'
       + '<span class="nav-icon">' + PAGE_ICONS[page.path] + "</span>"
       + '<span class="nav-title">' + esc(page.title) + "</span>" + dot + "</a>");
   }
+  // the person at the PC: initials in a circle and the name, filled in from /status; the
+  // power button joins it in browser mode
+  parts.push('<div class="user-block" id="user-block">'
+    + '<span class="user-avatar" id="user-avatar"></span>'
+    + '<span class="user-name" id="user-name"></span>'
+    + '<span id="user-actions"></span></div>');
   sidebar.innerHTML = parts.join("");
+}
+
+function initialsOf(name) {
+  var words = [];
+  var pieces = name.trim().split(/\s+/);
+  for (var i = 0; i < pieces.length; i++) {
+    if (pieces[i] !== "") {
+      words.push(pieces[i]);
+    }
+  }
+  if (words.length === 0) {
+    return "?";
+  }
+  var initials = words[0].charAt(0);
+  if (words.length > 1) {
+    initials = initials + words[words.length - 1].charAt(0);
+  }
+  return initials.toUpperCase();
+}
+
+function renderUser(name) {
+  var nameElement = document.getElementById("user-name");
+  if (nameElement === null || nameElement.textContent === name) {
+    return;
+  }
+  nameElement.textContent = name;
+  document.getElementById("user-avatar").textContent = initialsOf(name);
+  document.getElementById("user-block").title = name;
 }
 
 function onStatus(listener) {
@@ -246,8 +281,8 @@ function showQuitButton() {
   if (document.getElementById("quit-button") !== null) {
     return;
   }
-  // the sidebar, or the slot the setup page offers instead
-  var holder = document.getElementById("sidebar") || document.getElementById("quit-slot");
+  // next to the name in the sidebar, or the slot the setup page offers instead
+  var holder = document.getElementById("user-actions") || document.getElementById("quit-slot");
   if (holder === null) {
     return;
   }
@@ -255,7 +290,9 @@ function showQuitButton() {
   button.id = "quit-button";
   button.type = "button";
   button.className = "quit-button";
-  button.textContent = "Avslutt appen";
+  button.title = "Avslutt appen";
+  button.innerHTML = '<span class="quit-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></span>'
+    + '<span class="quit-title">Avslutt appen</span>';
   button.addEventListener("click", async function () {
     try {
       await fetchJson("/quit", { method: "POST" });
@@ -295,6 +332,9 @@ async function pollStatus() {
     window.location.href = "/setup";
     return;
   }
+  if (state.user_name) {
+    renderUser(state.user_name);
+  }
   if (state.can_quit) {
     showQuitButton();
   }
@@ -311,6 +351,74 @@ async function pollStatus() {
   }
 }
 
+// THE SIDEBAR'S WIDTH: dragged on its right edge, kept in this browser. The titles shrink
+// with it and go away below SIDEBAR_RAIL_BELOW; at SIDEBAR_MIN only the icon column is left.
+
+var SIDEBAR_MIN = 80;
+var SIDEBAR_RAIL_BELOW = 130;
+var SIDEBAR_MAX = 420;
+var SIDEBAR_DEFAULT = 240;
+var SIDEBAR_KEY = "sidebar-width";
+
+function applySidebarWidth(width) {
+  document.documentElement.style.setProperty("--sidebar-width", width + "px");
+  document.body.classList.toggle("sidebar-rail", width < SIDEBAR_RAIL_BELOW);
+}
+
+function clampSidebarWidth(width) {
+  return Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width));
+}
+
+function setupSidebarResize() {
+  var sidebar = document.getElementById("sidebar");
+  if (sidebar === null) {
+    return;
+  }
+  var stored = null;
+  try {
+    stored = parseInt(localStorage.getItem(SIDEBAR_KEY), 10);
+  } catch (error) {
+    stored = null;
+  }
+  if (stored >= SIDEBAR_MIN && stored <= SIDEBAR_MAX) {
+    applySidebarWidth(stored);
+  }
+
+  var handle = document.createElement("div");
+  handle.id = "sidebar-handle";
+  handle.title = "Dra for å endre bredden. Dobbeltklikk nullstiller";
+  sidebar.appendChild(handle);
+
+  handle.addEventListener("mousedown", function (event) {
+    event.preventDefault();
+    document.body.classList.add("resizing");
+    function onMove(moveEvent) {
+      applySidebarWidth(clampSidebarWidth(moveEvent.clientX));
+    }
+    function onUp(upEvent) {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("resizing");
+      try {
+        localStorage.setItem(SIDEBAR_KEY, String(clampSidebarWidth(upEvent.clientX)));
+      } catch (error) {
+        // a browser without storage keeps the width until the next load
+      }
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+  handle.addEventListener("dblclick", function () {
+    applySidebarWidth(SIDEBAR_DEFAULT);
+    try {
+      localStorage.removeItem(SIDEBAR_KEY);
+    } catch (error) {
+      // nothing stored, nothing to forget
+    }
+  });
+}
+
 renderSidebar();
+setupSidebarResize();
 setInterval(pollStatus, POLL_INTERVAL_MS);
 pollStatus();

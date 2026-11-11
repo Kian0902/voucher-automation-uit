@@ -83,17 +83,26 @@ function filterKeyOf(label) {
   return null;
 }
 
-function countBadges(counts) {
+// a pill with the count; compact leaves out the label, which the header line of the card
+// already shows, and keeps it as hover text
+function badge(className, count, label, compact) {
+  if (compact) {
+    return '<span class="badge ' + className + '" title="' + count + " " + label + '">' + count + "</span>";
+  }
+  return '<span class="badge ' + className + '">' + count + " " + label + "</span>";
+}
+
+function countBadges(counts, compact) {
   var parts = [];
   var confirm = counts["må bekreftes"] + counts["flere funnet"];
   if (counts["løst"] > 0) {
-    parts.push('<span class="badge badge-ok">' + counts["løst"] + " løst</span>");
+    parts.push(badge("badge-ok", counts["løst"], "løst", compact));
   }
   if (confirm > 0) {
-    parts.push('<span class="badge badge-confirm">' + confirm + " må bekreftes</span>");
+    parts.push(badge("badge-confirm", confirm, "må bekreftes", compact));
   }
   if (counts["uløst"] > 0) {
-    parts.push('<span class="badge badge-open">' + counts["uløst"] + " uløst</span>");
+    parts.push(badge("badge-open", counts["uløst"], "uløst", compact));
   }
   return parts.join(" ");
 }
@@ -186,7 +195,7 @@ function renderQueue() {
 
     var resultCell = "";
     if (job.summary !== null) {
-      resultCell = countBadges(job.summary);
+      resultCell = countBadges(job.summary, true);
       if (job.status === "done" && job.summary.total === 0) {
         resultCell = '<span class="small">ingen problemer funnet</span>';
       }

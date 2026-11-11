@@ -1,7 +1,7 @@
 // The settings page: the config file's values in a form, saved back to the file and taken
 // into use at once; the model list fetched from the server on request; the folders the app uses.
 
-var KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY"];
+var KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY", "USER_NAME"];
 
 var introLine = document.getElementById("intro");
 var errorBanner = document.getElementById("settings-error");

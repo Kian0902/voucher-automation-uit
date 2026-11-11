@@ -2,12 +2,13 @@
 // Each report file is checked and installed the moment it is chosen; the button saves the
 // settings and, when nothing is missing any more, opens the dashboard.
 
-var KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY"];
+var KEYS = ["API_URL", "API_MODEL", "API_KEY", "MISTRAL_API_KEY", "USER_NAME"];
 var SETTING_NAMES = {
   API_URL: "adressen til modellserveren",
   API_MODEL: "modellen",
   API_KEY: "nøkkelen til modellserveren",
   MISTRAL_API_KEY: "nøkkelen til Mistral OCR",
+  USER_NAME: "navnet",
 };
 
 var errorBanner = document.getElementById("setup-error");

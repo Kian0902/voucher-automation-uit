@@ -151,7 +151,7 @@ if __name__ == "__main__":
         threading.Thread(target=keep_page_alive, args=(page_closed,), daemon=True).start()
         assert state["status"] == "idle" and state["data_error"] is None, state
         assert state["can_quit"] is True, "browser mode offers the quit button"
-        assert sorted(state["settings_missing"]) == ["API_KEY", "API_MODEL", "API_URL", "MISTRAL_API_KEY"]
+        assert sorted(state["settings_missing"]) == ["API_KEY", "API_MODEL", "API_URL", "MISTRAL_API_KEY", "USER_NAME"]
         assert state["setup_needed"] is True, "without keys the setup page must come first"
         for page in PAGES:
             with urllib.request.urlopen(URL + page, timeout=5) as response:

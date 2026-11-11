@@ -5,7 +5,8 @@
    Velg "Mer informasjon" (More info), og så "Kjør likevel" (Run anyway).
 
 2. Appen åpner seg i nettleseren med oppsettsiden. Fyll inn adressen til modellserveren,
-   modellen og de to nøklene, velg de tre rapportfilene (Excel-filen eller CSV), og trykk "Fullfør oppsettet".
+   modellen, de to nøklene og navnet ditt, velg de tre rapportfilene (Excel-filen eller CSV),
+   og trykk "Fullfør oppsettet".
    Da er appen klar. Alt kan endres senere under Innstillinger og Kunnskapsbase.
 
 3. Du avslutter appen ved å lukke fanen i nettleseren, eller med "Avslutt appen"

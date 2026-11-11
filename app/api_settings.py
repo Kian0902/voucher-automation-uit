@@ -56,6 +56,7 @@ SETTINGS = [
     {"key": "API_MODEL", "secret": False},
     {"key": "API_KEY", "secret": True},
     {"key": "MISTRAL_API_KEY", "secret": True},
+    {"key": "USER_NAME", "secret": False},    # the name shown at the bottom of the menu
 ]
 
 # a line that sets a variable, with or without export, spaces and quotes
@@ -190,6 +191,8 @@ def validate_updates(updates: dict) -> str | None:
             return "Adressen må starte med http:// eller https://"
     if "API_MODEL" in updates and updates["API_MODEL"] == "":
         return "Modell kan ikke være tom"
+    if "USER_NAME" in updates and updates["USER_NAME"] == "":
+        return "Navn kan ikke være tomt"
     return None
 
 
@@ -356,7 +359,7 @@ if __name__ == "__main__":
         CONFIG_FILE = Path(temp_dir) / "config.env"
 
         # a missing file reads as unset and is created on save
-        assert read_config(CONFIG_FILE) == {"API_URL": None, "API_MODEL": None, "API_KEY": None, "MISTRAL_API_KEY": None}
+        assert read_config(CONFIG_FILE) == {"API_URL": None, "API_MODEL": None, "API_KEY": None, "MISTRAL_API_KEY": None, "USER_NAME": None}
         write_config(CONFIG_FILE, {"API_URL": "http://server.test/v1", "API_MODEL": "model-a"})
         values = read_config(CONFIG_FILE)
         assert values["API_URL"] == "http://server.test/v1" and values["API_MODEL"] == "model-a"
@@ -379,7 +382,7 @@ if __name__ == "__main__":
         values = read_config(CONFIG_FILE)
         assert values == {
             "API_URL": "http://old.test", "API_MODEL": "new-model",
-            "API_KEY": "sk-old-key-1234", "MISTRAL_API_KEY": "mstrl-new-key-9876",
+            "API_KEY": "sk-old-key-1234", "MISTRAL_API_KEY": "mstrl-new-key-9876", "USER_NAME": None,
         }, values
 
         # masking and the rules
@@ -419,6 +422,11 @@ if __name__ == "__main__":
         assert save_settings({}).status_code == 400
         answer = save_settings({"values": {"API_KEY": "sk-fresh-key-5555"}})
         assert isinstance(answer, dict) and read_config(CONFIG_FILE)["API_KEY"] == "sk-fresh-key-5555"
+        # the name: trimmed, and never blank
+        assert isinstance(save_settings({"values": {"USER_NAME": " Kari Nordmann "}}), dict)
+        assert read_config(CONFIG_FILE)["USER_NAME"] == "Kari Nordmann"
+        assert save_settings({"values": {"USER_NAME": "  "}}).status_code == 400
+        assert read_config(CONFIG_FILE)["USER_NAME"] == "Kari Nordmann"
 
         # the model list, with the server call stood in for
         def fake_list_models(url, key):
