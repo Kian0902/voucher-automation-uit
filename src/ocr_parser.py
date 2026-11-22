@@ -26,8 +26,10 @@ LOW_CONFIDENCE = 0.99
 # columns. None marks a column that is not carried into the structure.
 SCREEN_COLUMNS = ["row_number", None, None] + COLUMN_KEYS
 
-# The two row layouts seen on screen: all 14 columns, or the short variant that ends at Ordrenr.
-ROW_LAYOUTS = (14, 9)
+# The full list has 14 columns. A screenshot may be cut anywhere from Ordrenr onward, so a row has
+# 9 to 14 cells; the cells past Ordrenr are kept only when the list is whole (trim_cut_columns).
+FULL_LAYOUT = 14
+SHORT_LAYOUT = 9
 
 # The checkbox in column 2 as OCR read it on every row so far. The Zoom icon in column 3 comes
 # back as a varying glyph or an empty cell, and on some screenshots as no cell at all, which
@@ -257,7 +259,7 @@ def restore_zoom_cell(cells: list) -> list:
     Returns:
         list: The cells with an empty cell inserted at the Zoom position, or the cells unchanged.
     """
-    one_short = (len(cells) + 1) in ROW_LAYOUTS
+    one_short = SHORT_LAYOUT <= len(cells) + 1 <= FULL_LAYOUT
     if not one_short:
         return cells
     if cells[CHECKBOX_INDEX]["text"] != CHECKBOX_GLYPH:
@@ -269,9 +271,29 @@ def restore_zoom_cell(cells: list) -> list:
     return cells[:ZOOM_INDEX] + [zoom_cell] + cells[ZOOM_INDEX:]
 
 
+def trim_cut_columns(cells: list) -> list:
+    """
+    Drop the cells after Ordrenr when the screenshot was cut inside the list.
+
+    The last column of such a screenshot is cut in the middle and OCR reads the visible part as a
+    cell, so a 10 to 13 cell row ends with a fragment that must not be saved as a value. The
+    columns after Ordrenr are not used by the lookups, so the whole tail is dropped and the row
+    is handled as the short layout. A whole list keeps all 14 cells.
+
+    Args:
+        cells (list): The cells of one header or body row.
+
+    Returns:
+        list: The first 9 cells for a cut row, otherwise the cells unchanged.
+    """
+    if SHORT_LAYOUT < len(cells) < FULL_LAYOUT:
+        return cells[:SHORT_LAYOUT]
+    return cells
+
+
 def verify_row_layout(cells: list) -> None:
     """
-    Stop unless a body row has the cell count of one of the two layouts seen on screen.
+    Stop unless a body row has 9 to 14 cells, the counts a screenshot of the list can show.
 
     Args:
         cells (list): The cells of one body row.
@@ -279,9 +301,9 @@ def verify_row_layout(cells: list) -> None:
     Raises:
         ValueError: On any other count, which would misplace every column after the gap.
     """
-    if len(cells) not in ROW_LAYOUTS:
+    if not SHORT_LAYOUT <= len(cells) <= FULL_LAYOUT:
         raise ValueError(
-            f"row {cells[0]['text']} has {len(cells)} cells, the ERP list shows {ROW_LAYOUTS[0]} or {ROW_LAYOUTS[1]}")
+            f"row {cells[0]['text']} has {len(cells)} cells, the ERP list shows {SHORT_LAYOUT} to {FULL_LAYOUT}")
 
 
 def verify_anchor_columns(row: dict) -> None:
@@ -306,8 +328,8 @@ def body_row_to_structure(cells: list, words: list) -> dict:
     """
     Map the cells of one body row onto the structure, by their position on screen.
 
-    A row missing its Zoom cell is repaired first. The cell count is then checked against the two
-    known layouts, and the fixed-format columns are checked after mapping, so a row whose values sit
+    A row missing its Zoom cell is repaired first and a cut row loses its tail. The cell count is
+    then checked, and the fixed-format columns are checked after mapping, so a row whose values sit
     in the wrong columns is rejected instead of saved.
 
     Args:
@@ -322,6 +344,7 @@ def body_row_to_structure(cells: list, words: list) -> dict:
             fixed-format column holds a value of another shape.
     """
     cells = restore_zoom_cell(cells)
+    cells = trim_cut_columns(cells)
     verify_row_layout(cells)
     row_number_text = cells[0]["text"]
     if ROW_NUMBER_PATTERN.fullmatch(row_number_text) is None:
@@ -373,7 +396,7 @@ def parse_ocr_response(raw_response: dict, source_file: str, category: str | Non
         if len(cells) == 0 or is_empty_row(cells):
             continue
         if is_header_row(cells):
-            verify_header(cells)
+            verify_header(trim_cut_columns(cells))
             continue
         row = body_row_to_structure(cells, words)
         erp_list["rows"].append(row)
@@ -650,7 +673,45 @@ def print_resolved_tables(resolved_list: dict) -> None:
             print(f"     {line}")
 
 
+def _cells(texts: list, is_header: bool = False) -> list:
+    """
+    Build cells with empty spans for the self-check.
+
+    Args:
+        texts (list): The text of each cell.
+        is_header (bool): Whether the cells are th cells.
+
+    Returns:
+        list: Cells as parse_table_html() returns them.
+    """
+    cells = []
+    for text in texts:
+        cells.append({"text": text, "is_header": is_header, "start": 0, "end": 0})
+    return cells
+
+
 if __name__ == "__main__":
+    # Made-up rows: a whole list, a list cut after Ordrenr (with and without the Zoom cell), a header
+    # cut the same way, a row cut before Ordrenr, and a row whose OCR split one cell in two.
+    short_texts = ["1", CHECKBOX_GLYPH, "", "123456", "Firma AS", "70001", "Avdeling X", "12.11.2026", "600000001"]
+    full_texts = short_texts + ["987654321", "26.11.2026", "1 000,00", "Åpen", ""]
+    row = body_row_to_structure(_cells(full_texts), [])
+    assert row["ordrenr"] == "600000001" and row["organisasjonsnr"] == "987654321", row
+    row = body_row_to_structure(_cells(short_texts + ["98"]), [])
+    assert row["ordrenr"] == "600000001" and row["organisasjonsnr"] is None, row
+    no_zoom_texts = short_texts[:ZOOM_INDEX] + short_texts[ZOOM_INDEX + 1:]
+    row = body_row_to_structure(_cells(no_zoom_texts + ["98"]), [])
+    assert row["lev_nr"] == "123456" and row["ordrenr"] == "600000001", row
+    header_texts = ["", "☐", "Zoom", "Lev.nr", "Leverandør", "Fakturanr", "Deres ref.", "Fakturadato", "Ordrenr", "Organis"]
+    verify_header(trim_cut_columns(_cells(header_texts, is_header=True)))
+    for bad_texts in (short_texts[:-1], short_texts[:6] + ["Y"] + short_texts[6:] + ["98"]):
+        try:
+            body_row_to_structure(_cells(bad_texts), [])
+            raise AssertionError(f"accepted {bad_texts}")
+        except ValueError:
+            pass
+    print("layout self-check passed")
+
     # Change this name to parse another screenshot's OCR response. One screenshot per run by decision.
     screenshot_name = "Skjermbilde 2026-10-08 081004.png"
     category = "yellow"
