@@ -453,7 +453,7 @@ def lookup_io(io: str) -> dict:
         "koststed": entry["koststed"], "koststed_name": entry["koststed_name"]}
 
 
-def _one_edit_apart(first: str, second: str) -> bool:
+def one_edit_apart(first: str, second: str) -> bool:
     """
     Tells whether two words differ by exactly one letter: inserted, dropped, replaced or swapped.
 
@@ -465,7 +465,7 @@ def _one_edit_apart(first: str, second: str) -> bool:
         bool: True for exactly one edit, False for equal words and for two or more edits.
 
     Example:
-        _one_edit_apart("morsund", "moursund") -> True
+        one_edit_apart("morsund", "moursund") -> True
     """
 
     if first == second:
@@ -522,7 +522,7 @@ def _word_variants(tables: LookupTables, word: str) -> list:
         return []
     variants = []
     for index_word in tables.persons_by_word:
-        if _one_edit_apart(word, index_word):
+        if one_edit_apart(word, index_word):
             variants.append(index_word)
     return variants
 
@@ -839,11 +839,11 @@ if __name__ == "__main__":
     assert koststed_result["description"] == tables.koststeder[first_koststed]
 
     # one letter of tolerance: inserted, dropped, replaced, swapped; never zero or two edits
-    assert _one_edit_apart("morsund", "moursund") and _one_edit_apart("moursund", "morsund")
-    assert _one_edit_apart("hansen", "hanson") and _one_edit_apart("hansen", "hansne")
-    assert _one_edit_apart("hansen", "hansens") and _one_edit_apart("hansens", "hansen")
-    assert not _one_edit_apart("hansen", "hansen") and not _one_edit_apart("hansen", "hensan")
-    assert not _one_edit_apart("hansen", "hansenes") and not _one_edit_apart("ab", "cd")
+    assert one_edit_apart("morsund", "moursund") and one_edit_apart("moursund", "morsund")
+    assert one_edit_apart("hansen", "hanson") and one_edit_apart("hansen", "hansne")
+    assert one_edit_apart("hansen", "hansens") and one_edit_apart("hansens", "hansen")
+    assert not one_edit_apart("hansen", "hansen") and not one_edit_apart("hansen", "hensan")
+    assert not one_edit_apart("hansen", "hansenes") and not one_edit_apart("ab", "cd")
     assert _word_variants(tables, "abc") == []
 
     # the edge cases the API handled

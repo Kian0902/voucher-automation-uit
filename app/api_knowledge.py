@@ -26,7 +26,8 @@ import openpyxl
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import lookup_data
-from lookup_data import HEADER_A, HEADER_B, HEADER_C, REPORT_A, REPORT_B, REPORT_C
+from lookup_data import FUZZY_MIN_WORD_LENGTH, HEADER_A, HEADER_B, HEADER_C, REPORT_A, REPORT_B, REPORT_C, one_edit_apart
+from normalize import normalize_words
 
 
 # the folder that holds the three files, set by server.py to the one next to the app
@@ -147,28 +148,87 @@ def read_report(report_id: str) -> list:
     return rows
 
 
-def filter_rows(rows: list, query: str) -> list:
+def report_words(report_id: str) -> list:
+    """
+    The normalized words of every row of a report, for the tolerant pass of filter_rows().
+
+    Computed once per file version and kept with the cached rows, since normalizing 36 000 rows
+    on every keystroke would be felt.
+
+    Args:
+        report_id (str): "a", "b" or "c".
+
+    Returns:
+        list[list[str]]: One word list per row, in file order.
+    """
+
+    read_report(report_id)
+    cached = _CACHE[report_id]
+    if cached.get("words") is None:
+        words_per_row = []
+        for row in cached["rows"]:
+            words_per_row.append(normalize_words(" ".join(row)))
+        cached["words"] = words_per_row
+    return cached["words"]
+
+
+def filter_rows(rows: list, query: str, row_words: list | None = None) -> list:
     """
     The rows that contain every word of the query, case-insensitive, in file order.
+
+    When no row contains them all, a second pass lets each query word of FUZZY_MIN_WORD_LENGTH
+    letters or more also match a row word that differs by one letter, the same tolerance as the
+    agent's name lookup, so a misspelled name still shows its row. A shorter word or a prefix gets
+    no tolerance, which keeps the list quiet while a word is being typed.
 
     Args:
         rows (list[list[str]]): The data rows of a report.
         query (str): What was typed in the search field; blank keeps every row.
+        row_words (list | None): The normalized words per row from report_words(); computed
+            here when not given.
 
     Returns:
         list[tuple[int, list[str]]]: (position, row) pairs.
     """
 
     words = query.lower().split()
+    if len(words) == 0:
+        return list(enumerate(rows))
+
     matches = []
     for index, row in enumerate(rows):
-        if len(words) == 0:
-            matches.append((index, row))
-            continue
         text = " ".join(row).lower()
         all_found = True
         for word in words:
             if word not in text:
+                all_found = False
+                break
+        if all_found:
+            matches.append((index, row))
+    if len(matches) > 0:
+        return matches
+
+    # nothing matched as typed: one letter of tolerance per word, whole words only
+    tolerant_words = []
+    for word in words:
+        normalized = normalize_words(word)
+        if len(normalized) != 1 or len(normalized[0]) < FUZZY_MIN_WORD_LENGTH:
+            return []
+        tolerant_words.append(normalized[0])
+    if row_words is None:
+        row_words = []
+        for row in rows:
+            row_words.append(normalize_words(" ".join(row)))
+
+    for index, row in enumerate(rows):
+        all_found = True
+        for word in tolerant_words:
+            found = False
+            for candidate in row_words[index]:
+                if word == candidate or one_edit_apart(word, candidate):
+                    found = True
+                    break
+            if not found:
                 all_found = False
                 break
         if all_found:
@@ -580,7 +640,7 @@ def rows(report: str, query: str = "", page: int = 1, size: int = DEFAULT_PAGE_S
     if error is not None:
         return error
 
-    matches = filter_rows(all_rows, query)
+    matches = filter_rows(all_rows, query, report_words(report))
     if size not in PAGE_SIZES:
         size = DEFAULT_PAGE_SIZE
     page_count = max(1, (len(matches) + size - 1) // size)
@@ -839,6 +899,11 @@ if __name__ == "__main__":
         assert len(filter_rows(rows_a, "person")) == 2
         assert len(filter_rows(rows_a, "TO enhet")) == 1
         assert len(filter_rows(rows_a, "")) == 3
+        # one letter off still shows the rows; a short or unknown word does not
+        assert len(filter_rows(rows_a, "persen")) == 2
+        assert len(filter_rows(rows_a, "persen", report_words("a"))) == 2
+        assert len(filter_rows(rows_a, "pes")) == 0
+        assert len(filter_rows(rows_a, "xqzvw")) == 0
         page_answer = rows("a", "", 9, 25)
         assert page_answer["page"] == 1 and page_answer["total"] == 3 and page_answer["pages"] == 1
         page_answer = rows("a", "", 2, 2)
