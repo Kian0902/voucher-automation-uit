@@ -13,7 +13,7 @@ import re
 import time
 from pathlib import Path
 
-from normalize import normalize_name, normalize_words
+from normalize import compact_key, normalize_name, normalize_words
 
 
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "data" / "koststed_tables"
@@ -30,6 +30,8 @@ HEADER_C = ["Koststedsnr.", "Koststedsnavn"]
 MAX_CANDIDATES = 10
 # shorter query words are never matched with a letter of tolerance: too many neighbours
 FUZZY_MIN_WORD_LENGTH = 4
+# a catalog shortcut shorter than this is never matched as the start of a reference
+SHORTCUT_MIN_LENGTH = 3
 
 IO_PATTERN = re.compile(r"6\d{8}")
 KOSTSTED_PATTERN = re.compile(r"\d{8}")
@@ -52,6 +54,10 @@ class LookupTables:
         self.persons = []
         self.persons_by_key = {}
         self.persons_by_word = {}
+        # compact key (letters and digits only) -> positions, so "A-27" and "A27" meet
+        self.persons_by_compact = {}
+        # positions of the report C names, the entries a shortcut search reads
+        self.koststed_name_positions = []
         self.ios = {}
         self.ios_by_koststed = {}
         self.koststeder = {}
@@ -185,6 +191,7 @@ def load_persons(data_rows: list, tables: LookupTables, kind: str = "person") ->
             continue
 
         words = set(key.split(" "))
+        compact = compact_key(original_name)
         position = len(tables.persons)
         tables.persons.append({
             "name": original_name,
@@ -193,11 +200,19 @@ def load_persons(data_rows: list, tables: LookupTables, kind: str = "person") ->
             "kind": kind,
             "key": key,
             "words": words,
+            "compact": compact,
         })
 
         if key not in tables.persons_by_key:
             tables.persons_by_key[key] = []
         tables.persons_by_key[key].append(position)
+
+        if compact not in tables.persons_by_compact:
+            tables.persons_by_compact[compact] = []
+        tables.persons_by_compact[compact].append(position)
+
+        if kind == "koststed":
+            tables.koststed_name_positions.append(position)
 
         for word in words:
             if word not in tables.persons_by_word:
@@ -273,6 +288,24 @@ def load_koststeder(data_rows: list, tables: LookupTables) -> None:
         tables.koststeder[koststed] = description
 
 
+def load_koststed_names(tables: LookupTables) -> None:
+    """
+    Adds the koststed names of report C to the name index, after load_koststeder().
+
+    The finance team keeps references of their own in the catalog, a project name or a shortcut
+    such as "A-27", and those are looked up like persons.
+
+    Args:
+        tables (LookupTables): The tables being built, with koststeder filled.
+    """
+
+    name_rows = []
+    for koststed, description in tables.koststeder.items():
+        if description is not None:
+            name_rows.append([description, koststed, description])
+    load_persons(name_rows, tables, kind="koststed")
+
+
 def load_tables(reports_dir: Path = REPORTS_DIR) -> LookupTables:
     """
     Reads the three reports from a folder and makes them the tables every lookup uses.
@@ -297,13 +330,7 @@ def load_tables(reports_dir: Path = REPORTS_DIR) -> LookupTables:
     load_persons(rows_a, tables)
     load_ios(rows_b, tables)
     load_koststeder(rows_c, tables)
-
-    # The names the finance team keeps in the catalog, such as a project, are looked up like persons.
-    name_rows = []
-    for koststed, description in tables.koststeder.items():
-        if description is not None:
-            name_rows.append([description, koststed, description])
-    load_persons(name_rows, tables, kind="koststed")
+    load_koststed_names(tables)
 
     _TABLES = tables
     return tables
@@ -500,6 +527,48 @@ def _word_variants(tables: LookupTables, word: str) -> list:
     return variants
 
 
+def _shortcut_search(tables: LookupTables, name: str, key: str) -> dict:
+    """
+    Search method for short codes: the same letters and digits, or a catalog shortcut that starts
+    the reference.
+
+    "A27" and "A-27" have the same compact key and count as an exact match. A reference such as
+    "A27-H" starts with the compact key of the catalog shortcut "A-27"; that is a lead the finance
+    team uses themselves, returned as "shortcut" for the caseworker to confirm. Only report C
+    names are read as shortcuts, and only those of SHORTCUT_MIN_LENGTH letters and digits or more.
+
+    Args:
+        tables (LookupTables): The loaded tables.
+        name (str): The original query.
+        key (str): The normalized key of the query.
+
+    Returns:
+        dict: match_type is "exact", "shortcut" or "none".
+    """
+
+    compact = compact_key(name)
+    compact_positions = tables.persons_by_compact.get(compact, [])
+    if len(compact_positions) > 0:
+        return {"query": name, "normalized_key": key, "match_type": "exact",
+            "persons": _person_dicts(tables, compact_positions),
+            "note": "the same letters and digits; spaces and punctuation differ"}
+
+    shortcut_positions = []
+    for position in tables.koststed_name_positions:
+        shortcut = tables.persons[position]["compact"]
+        if len(shortcut) < SHORTCUT_MIN_LENGTH:
+            continue
+        if len(compact) > len(shortcut) and compact.startswith(shortcut):
+            shortcut_positions.append(position)
+
+    if len(shortcut_positions) == 0 or len(shortcut_positions) > MAX_CANDIDATES:
+        return {"query": name, "normalized_key": key, "match_type": "none", "persons": []}
+
+    return {"query": name, "normalized_key": key, "match_type": "shortcut",
+        "persons": _person_dicts(tables, shortcut_positions),
+        "note": f"the catalog name is the start of the reference {name!r}. A suggestion to confirm, not a match"}
+
+
 def _fuzzy_person_search(tables: LookupTables, name: str, key: str, tokens: list) -> dict:
     """
     Search method where one query word may be misspelled by one letter.
@@ -596,18 +665,20 @@ def _relaxed_person_search(tables: LookupTables, name: str, key: str, tokens: li
 
 def lookup_person(name: str) -> dict:
     """
-    Looks up a name among the persons of report A and the koststed names of report C, with four
+    Looks up a name among the persons of report A and the koststed names of report C, with five
     search methods.
 
-    Exact: the whole normalized name matches. Partial: every query word appears in the name, in
-    any order, two words at least. Fuzzy: the same with one word misspelled by one letter.
-    Relaxed: all but one query word appear, three words at least.
+    Exact: the whole normalized name matches, or the same letters and digits with other spacing
+    and punctuation. Shortcut: a catalog shortcut starts the reference. Partial: every query word
+    appears in the name, in any order, two words at least. Fuzzy: the same with one word
+    misspelled by one letter. Relaxed: all but one query word appear, three words at least.
 
     Args:
-        name (str): The person name as written on the invoice or the list.
+        name (str): The person name, reference or code as written on the invoice or the list.
 
     Returns:
-        dict: match_type is "exact", "partial", "fuzzy", "partial_relaxed", "none" or "too_many".
+        dict: match_type is "exact", "shortcut", "partial", "fuzzy", "partial_relaxed", "none"
+            or "too_many".
     """
 
     tables = get_tables()
@@ -620,6 +691,10 @@ def lookup_person(name: str) -> dict:
     exact_positions = tables.persons_by_key.get(key, [])
     if len(exact_positions) > 0:
         return {"query": name, "normalized_key": key, "match_type": "exact", "persons": _person_dicts(tables, exact_positions)}
+
+    shortcut_result = _shortcut_search(tables, name, key)
+    if shortcut_result["match_type"] != "none":
+        return shortcut_result
 
     tokens = key.split(" ")
     if len(tokens) < 2:
@@ -788,6 +863,23 @@ if __name__ == "__main__":
         export_rows = read_rows(export_path, HEADER_A)
         assert export_rows[0] == ["Etternavn, Fornavn", "10000001", "Enhet en"], export_rows[0]
         assert export_rows[1] == ["Annen, Person Mellom", "10000002"], export_rows[1]
+
+    # made-up tables: a shortcut in the catalog meets the references the list writes it in
+    made_up = LookupTables()
+    load_persons([["Etternavn, Fornavn", "10000001", "Enhet en"]], made_up)
+    load_koststeder([["26270000", "A-27"], ["26280000", "Seksjon for test"]], made_up)
+    load_koststed_names(made_up)
+    _TABLES = made_up
+    shortcut_hit = lookup_person("A27-H")
+    assert shortcut_hit["match_type"] == "shortcut", shortcut_hit
+    assert [hit["koststed"] for hit in shortcut_hit["persons"]] == ["26270000"], shortcut_hit
+    assert lookup_person("A27")["match_type"] == "exact"
+    assert lookup_person("a 27")["match_type"] == "exact"
+    assert lookup_person("B27-H")["match_type"] == "none"
+    assert lookup_person("A2")["match_type"] == "none"
+    assert lookup_person("Fornavn Etternavn")["match_type"] == "exact"
+    assert health()["table_counts"]["persons"] == 1
+    _TABLES = tables
 
     print(f"persons:    {counts['persons']} rows ({tables.skipped_names} unusable name rows skipped)")
     print(f"ios:        {counts['ios']} rows ({tables.unknown_ios} with unknown koststed)")

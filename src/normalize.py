@@ -28,6 +28,22 @@ def normalize_words(raw_text: str) -> list:
     return cleaned_text.split()
 
 
+def compact_key(raw_text: str) -> str:
+    """
+    The letters and digits of a text, normalized, with spaces and punctuation removed.
+
+    Two ways of writing a short code, such as "A-27" and "A27", give the same compact key.
+
+    Args:
+        raw_text (str): A name, a code or a reference.
+
+    Returns:
+        str: The compact key, "" for a text without letters or digits.
+    """
+
+    return "".join(normalize_words(raw_text))
+
+
 def normalize_name(raw_name: str) -> str:
     """
     Normalizes the persons name to be consistent with db key name.
@@ -72,5 +88,7 @@ if __name__ == "__main__":
     assert normalize_words("Nordmann, Ola") == ["nordmann", "ola"]
     assert normalize_words("Hytte for 2 ( Ola Nordmann - uke 40 )") == ["hytte", "for", "2", "ola", "nordmann", "uke", "40"]
     assert normalize_words(" - ") == []
+    assert compact_key("A-27") == "a27" and compact_key("A27-H") == "a27h"
+    assert compact_key("Tromsø undersøkelsen") == compact_key("Tromsøundersøkelsen")
 
     print("normalize_name test passed")

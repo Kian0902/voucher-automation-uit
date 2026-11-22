@@ -77,6 +77,9 @@ function renderSearch(data) {
     } else if (result.match_type === "partial_relaxed") {
       parts.push('<div class="search-sub">Delvis treff, ett ord matchet ikke:</div>');
       parts.push(renderPersons(result.persons));
+    } else if (result.match_type === "shortcut") {
+      parts.push('<div class="search-sub">Forkortelse i starten av referansen. Bekreft:</div>');
+      parts.push(renderPersons(result.persons));
     } else if (result.match_type === "fuzzy") {
       parts.push('<div class="search-sub">Nær treff, én bokstav avviker. Sjekk stavemåten:</div>');
       parts.push(renderPersons(result.persons));

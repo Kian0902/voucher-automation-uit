@@ -328,6 +328,7 @@ LOOKUP_OUTCOMES = {
     "partial": "delvis treff",
     "partial_relaxed": "delvis treff, ett ord matchet ikke",
     "fuzzy": "nær treff, én bokstav avviker",
+    "shortcut": "forkortelse i starten av referansen",
     "none": "ingen treff",
     "too_many": "for mange treff",
 }

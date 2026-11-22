@@ -157,6 +157,8 @@ up. While you are still looking things up, leave 'resolutions' empty. When you a
   Several persons are candidates only, so present them all and leave the problem unresolved.
   match_type "fuzzy" means one query word was read with one letter changed; the note says which.
   The persons are suggestions to confirm, never resolved, and 'why' names the spelling difference.
+  match_type "shortcut" means a short code the finance team keeps in the reports is the start of
+  the reference. A suggestion to confirm, never resolved; say so in 'why'.
   Use other invoice data (a contact email, the delivery unit) to reason about which candidate is
   likely, and say that this is reasoning, not certainty.
 - lookup_koststed: argument is the 8-digit koststed. Checks it against the authoritative catalog.
@@ -169,7 +171,8 @@ up. While you are still looking things up, leave 'resolutions' empty. When you a
 2. A name in the buyer reference, a person or another reference: its koststed from the lookup is
    the likely correct buyer reference, so suggest it.
 3. Check the values the problems point at: an IO or IO-shaped value with lookup_io, an 8-digit value
-   with lookup_koststed, a name with lookup_person.
+   with lookup_koststed, a name or any other text or short code in a reference field with
+   lookup_person; the finance team keeps names and shortcuts of their own in the reports.
 3b. names_in_text in the invoice JSON holds person names a scan found in the invoice's texts, each
    with where it stood and the text. Read the text: a person who ordered or is named as the
    reference, or whose role is unclear, is looked up with lookup_person. A person shown as a
@@ -187,7 +190,8 @@ up. While you are still looking things up, leave 'resolutions' empty. When you a
   'suggestion' as candidates, set resolved to false, and say in 'why' that the caseworker must
   confirm.
 - A koststed that comes from a name in names_in_text is a suggestion, never resolved.
-- A koststed from a fuzzy name match, one letter differing, is a suggestion, never resolved.
+- A koststed from a fuzzy name match, one letter differing, or from a shortcut match is a
+  suggestion, never resolved.
 - When nothing could be resolved, say so plainly in 'why', an honest unresolved is better than a guess.
 - Keep the private 'thinking' short. A few sentences per step is enough, never repeat yourself.
 - Write the free-text fields ('why', 'summary') in Norwegian (bokmål), short and plain, for the
@@ -207,9 +211,10 @@ link the invoice to its koststed (the buyer's cost centre).
 Three kinds of value. They can stand in any cell, also in a cell where they do not belong, since a
 reference is often typed into the wrong field. List every one you see.
 - A reference name: the person at UiT who ordered, or another reference the finance team keeps in
-  the reports, such as a project, a unit or a study. Any text in deres_ref that is not a
-  placeholder, a number or a date is a reference name. A name can also stand inside free text in
-  another cell, or be cut at the cell border by the screenshot. A cut name is still a name.
+  the reports, such as a project, a unit, a study or a short code like a letter, a hyphen and two
+  digits. Any text in deres_ref that is not a placeholder, a plain number or a date is a reference
+  name. A name can also stand inside free text in another cell, or be cut at the cell border by
+  the screenshot. A cut name is still a name.
 - An IO (innkjøpsordrenummer, purchase order number): 9 digits starting with 6.
 - A koststed: 8 digits starting with 2, 3 or 4.
 
@@ -247,9 +252,10 @@ Results of your lookups arrive as messages starting with "[Tool result]".
 Three kinds of value can be linked to a koststed. Look for them in every cell of the row, in
 whichever cell they appear.
 - A reference name: the person at UiT who ordered, or another reference the finance team keeps in
-  the reports, such as a project, a unit or a study. Any text in deres_ref that is not a
-  placeholder, a number or a date is a reference name. A name can also stand inside free text in
-  another cell, or be cut at the cell border by the screenshot. A cut name is still a name.
+  the reports, such as a project, a unit, a study or a short code like a letter, a hyphen and two
+  digits. Any text in deres_ref that is not a placeholder, a plain number or a date is a reference
+  name. A name can also stand inside free text in another cell, or be cut at the cell border by
+  the screenshot. A cut name is still a name.
 - An IO (innkjøpsordrenummer, purchase order number): 9 digits starting with 6.
 - A koststed: 8 digits starting with 2, 3 or 4.
 Anything else cannot be looked up by any tool: a 6-digit ansattnummer (employee number), an invoice
@@ -263,6 +269,8 @@ Three lookups, one per kind of value. Each reads one finance report exported fro
   names of report C, both mapped to a koststed. Returns match_type and persons, each hit with
   kind ('person' or 'koststed'), name, koststed and koststed_name.
   "exact": the full name matched. The koststed is reliable evidence.
+  "shortcut": a short code the finance team keeps in the reports is the start of the reference,
+  such as "A-27" for a reference "A27-H". A suggestion to confirm, never resolved; say so in 'why'.
   "partial": every word of the query is in the person's name, which is longer, typically a middle
   name the invoice left out. Exactly one person returned from a query of two or more words is
   reliable evidence: nobody else in the report carries all those words. One person from a
@@ -308,8 +316,8 @@ set tool to "none" and fill them.
 - 'resolved' is true only when 'koststeder' holds exactly one koststed that comes from an exact
   name match, a partial match of two or more words that returned one person, a found IO or a
   found koststed. Name that evidence in 'source': the tool and the value it was given. A single
-  one-word, relaxed or fuzzy name match is a suggestion: list its koststed, set resolved to false
-  and say in 'why' how the name matched. Several candidates are never resolved.
+  one-word, relaxed, fuzzy or shortcut match is a suggestion: list its koststed, set resolved to
+  false and say in 'why' how the name matched. Several candidates are never resolved.
 - 'why' is one line on how you reached the conclusion. When nothing was found, say so plainly: an
   honest unresolved is better than a guess.
 - 'summary' is one sentence of at most 20 words for the overview sheet: what was found and from
