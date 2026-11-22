@@ -42,10 +42,10 @@ def lookup_io(io: str) -> dict:
 
 def lookup_person(name: str) -> dict:
     """
-    Looks up a person name in report A.
+    Looks up a name among the persons of report A and the koststed names of report C.
 
     Args:
-        name (str): The person name as written on the invoice or the list.
+        name (str): The name as written on the invoice or the list.
 
     Returns:
         dict: match_type "exact", "partial", "partial_relaxed", "too_many" or "none".

@@ -40,9 +40,10 @@ class LookupTables:
     The loaded reports and the indexes the lookups read.
 
     persons holds one dict per usable row of report A in file order, with the response fields
-    name, koststed and koststed_name plus the normalized key and the set of its words.
-    persons_by_key and persons_by_word map to positions in that list, so every search returns
-    persons in file order, as the database did.
+    name, koststed and koststed_name plus the normalized key and the set of its words. After them
+    come the koststed names of report C, so that a reference such as a project name is looked up
+    the same way; "kind" tells "person" and "koststed" apart. persons_by_key and persons_by_word
+    map to positions in that list, so every search returns hits in file order, as the database did.
     """
 
     def __init__(self):
@@ -154,16 +155,17 @@ def _is_koststed(value: str) -> bool:
     return KOSTSTED_PATTERN.fullmatch(value) is not None
 
 
-def load_persons(data_rows: list, tables: LookupTables) -> None:
+def load_persons(data_rows: list, tables: LookupTables, kind: str = "person") -> None:
     """
-    Fills the persons list and its two indexes from report A.
+    Fills the persons list and its two indexes from rows shaped like report A.
 
     Rows without a usable name, empty or nothing left after normalizing, can never be looked up,
     so they are skipped and counted.
 
     Args:
-        data_rows (list[list[str]]): Data rows of report A.
+        data_rows (list[list[str]]): Data rows of report A, or koststed names shaped like them.
         tables (LookupTables): The tables being built.
+        kind (str): "person" for report A rows, "koststed" for the names of report C.
     """
 
     for row in data_rows:
@@ -186,6 +188,7 @@ def load_persons(data_rows: list, tables: LookupTables) -> None:
             "name": original_name,
             "koststed": koststed,
             "koststed_name": koststed_name,
+            "kind": kind,
             "key": key,
             "words": words,
         })
@@ -293,6 +296,13 @@ def load_tables(reports_dir: Path = REPORTS_DIR) -> LookupTables:
     load_ios(rows_b, tables)
     load_koststeder(rows_c, tables)
 
+    # The names the finance team keeps in the catalog, such as a project, are looked up like persons.
+    name_rows = []
+    for koststed, description in tables.koststeder.items():
+        if description is not None:
+            name_rows.append([description, koststed, description])
+    load_persons(name_rows, tables, kind="koststed")
+
     _TABLES = tables
     return tables
 
@@ -328,6 +338,7 @@ def _person_dicts(tables: LookupTables, positions: list) -> list:
     for position in positions:
         person = tables.persons[position]
         persons.append({
+            "kind": person["kind"],
             "name": person["name"],
             "koststed": person["koststed"],
             "koststed_name": person["koststed_name"],
@@ -373,8 +384,12 @@ def health() -> dict:
     """
 
     tables = get_tables()
+    person_count = 0
+    for person in tables.persons:
+        if person["kind"] == "person":
+            person_count = person_count + 1
     counts = {
-        "persons": len(tables.persons),
+        "persons": person_count,
         "ios": len(tables.ios),
         "koststeder": len(tables.koststeder),
     }
@@ -459,7 +474,8 @@ def _relaxed_person_search(tables: LookupTables, name: str, key: str, tokens: li
 
 def lookup_person(name: str) -> dict:
     """
-    Looks up a person name in report A with three search methods.
+    Looks up a name among the persons of report A and the koststed names of report C, with three
+    search methods.
 
     Exact: the whole normalized name matches. Partial: every query word appears in the name, in
     any order, two words at least. Relaxed: all but one query word appear, three words at least.

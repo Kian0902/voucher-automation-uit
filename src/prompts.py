@@ -137,7 +137,9 @@ up. While you are still looking things up, leave 'resolutions' empty. When you a
 - lookup_io: argument is the IO. Checks an innkjopsordrenummer (IO) against the finance order report.
   Status "found" gives the koststed the IO belongs to. "not_found" means the IO is unknown to Unit4.
   Report that as a finding: the order cannot be matched.
-- lookup_person: argument is the person name. Looks up a person name and returns the person's koststed.
+- lookup_person: argument is a reference name, a person at UiT or another reference such as a
+  project or a unit. Looks it up among the person names of report A and the koststed names of
+  report C and returns the koststed; each hit says its kind.
   match_type "exact" is reliable. For "partial" results, count the persons returned: exactly one
   person may be used as the resolution, with 'why' saying it was a partial name match. Several
   persons are candidates only, so present them as possibilities to confirm and leave the problem
@@ -153,10 +155,10 @@ up. While you are still looking things up, leave 'resolutions' empty. When you a
 # How to work
 1. Reference-format values sitting elsewhere in the invoice (notes, line notes, project or contract
    references) are leads. Check them too.
-2. A person name in the buyer reference: the person's koststed from the lookup is the likely correct
-   buyer reference, so suggest it.
+2. A name in the buyer reference, a person or another reference: its koststed from the lookup is
+   the likely correct buyer reference, so suggest it.
 3. Check the values the problems point at: an IO or IO-shaped value with lookup_io, an 8-digit value
-   with lookup_koststed, a person name with lookup_person.
+   with lookup_koststed, a name with lookup_person.
 4. Look up everything relevant before you conclude. One tool per reply. Do not repeat a lookup you
    already did; earlier results stay visible in the conversation.
 
@@ -185,8 +187,10 @@ link the invoice to its koststed (the buyer's cost centre).
 # What to find
 Three kinds of value. They can stand in any cell, also in a cell where they do not belong, since a
 reference is often typed into the wrong field. List every one you see.
-- A person name: the person at UiT who ordered. It can stand alone, inside free text, or be cut
-  at the cell border by the screenshot. A cut name is still a name.
+- A reference name: the person at UiT who ordered, or another reference the finance team keeps in
+  the reports, such as a project, a unit or a study. Any text in deres_ref that is not a
+  placeholder, a number or a date is a reference name. A name can also stand inside free text in
+  another cell, or be cut at the cell border by the screenshot. A cut name is still a name.
 - An IO (innkjøpsordrenummer, purchase order number): 9 digits starting with 6.
 - A koststed: 8 digits starting with 2, 3 or 4.
 
@@ -197,7 +201,7 @@ text, the name part only. An empty list when the row holds none of the three.
 
 # Rules
 - Copy, never correct or complete. A cut name stays cut; a number stays as read.
-- A company or supplier name is not a person name.
+- The supplier's name in leverandor is not a reference name.
 - Not a lookup value: a placeholder such as "NA", "n/a" or "0", a 6-digit number, a date, an
   amount, a 9-digit number that does not start with 6, an 8-digit number that does not start with
   2, 3 or 4.
@@ -223,8 +227,10 @@ Results of your lookups arrive as messages starting with "[Tool result]".
 # What to look for
 Three kinds of value can be linked to a koststed. Look for them in every cell of the row, in
 whichever cell they appear.
-- A person name: the person at UiT who ordered. It can stand alone, inside free text, or cut at
-  the cell border by the screenshot. A cut name is still a name.
+- A reference name: the person at UiT who ordered, or another reference the finance team keeps in
+  the reports, such as a project, a unit or a study. Any text in deres_ref that is not a
+  placeholder, a number or a date is a reference name. A name can also stand inside free text in
+  another cell, or be cut at the cell border by the screenshot. A cut name is still a name.
 - An IO (innkjøpsordrenummer, purchase order number): 9 digits starting with 6.
 - A koststed: 8 digits starting with 2, 3 or 4.
 Anything else cannot be looked up by any tool: a 6-digit ansattnummer (employee number), an invoice
@@ -234,8 +240,9 @@ The value "0" in ordrenr means no IO was given.
 
 # Tools
 Three lookups, one per kind of value. Each reads one finance report exported from Unit4.
-- lookup_person: argument is a person name. Reads report A, which maps person names at UiT to
-  their koststed. Returns match_type and persons, each person with name, koststed and koststed_name.
+- lookup_person: argument is a reference name. Reads the person names of report A and the koststed
+  names of report C, both mapped to a koststed. Returns match_type and persons, each hit with
+  kind ('person' or 'koststed'), name, koststed and koststed_name.
   "exact": the full name matched. The koststed is reliable evidence.
   "partial": every word of the query is in the person's name, which is longer, typically a middle
   name the invoice left out. Exactly one person returned from a query of two or more words is
