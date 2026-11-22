@@ -2,6 +2,32 @@
 from anyascii import anyascii
 
 
+def normalize_words(raw_text: str) -> list:
+    """
+    The words of a text the way normalize_name() sees them, in the text's own order.
+
+    Transliterates to ASCII, lowercases and turns every character that is not a letter or a
+    digit into a space. The order is kept so that neighbouring words can be read as a name.
+
+    Args:
+        raw_text (str): Any text, a name or a free text from an invoice.
+
+    Returns:
+        list[str]: The normalized words, empty for a text without letters or digits.
+    """
+
+    ascii_text = anyascii(raw_text)
+    lowered_text = ascii_text.lower()
+    cleaned_characters = []
+    for character in lowered_text:
+        if character.isalnum():
+            cleaned_characters.append(character)
+        else:
+            cleaned_characters.append(" ")
+    cleaned_text = "".join(cleaned_characters)
+    return cleaned_text.split()
+
+
 def normalize_name(raw_name: str) -> str:
     """
     Normalizes the persons name to be consistent with db key name.
@@ -23,22 +49,8 @@ def normalize_name(raw_name: str) -> str:
             etc
     """
 
-    #print(raw_name)
-    ascii_name = anyascii(raw_name)
-    lowered_name = ascii_name.lower()
-    #print(lowered_name)
-
-    # Every non-letters and digits (comma, period, hyphen, ...etc) becomes a space
-    cleaned_characters = []
-    for character in lowered_name:
-        if character.isalnum():
-            cleaned_characters.append(character)
-        else:
-            cleaned_characters.append(" ")
-    cleaned_name = "".join(cleaned_characters)
-
     # Sorting the words makes "Etternavn, Fornavn" and "Fornavn Etternavn" equal
-    words = cleaned_name.split()
+    words = normalize_words(raw_name)
     words.sort()
     result_key = " ".join(words)
     return result_key
@@ -57,5 +69,8 @@ if __name__ == "__main__":
     assert normalize_name("Anne-Lise Vik") == normalize_name("anne lise vik")
     assert normalize_name("...") == ""
     assert normalize_name("   ") == ""
+    assert normalize_words("Nordmann, Ola") == ["nordmann", "ola"]
+    assert normalize_words("Hytte for 2 ( Ola Nordmann - uke 40 )") == ["hytte", "for", "2", "ola", "nordmann", "uke", "40"]
+    assert normalize_words(" - ") == []
 
     print("normalize_name test passed")

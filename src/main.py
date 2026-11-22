@@ -18,7 +18,7 @@ from model_client import build_chat_model
 
 from prompts import INVOICE_PROBLEM_IDENTIFICATION, INVOICE_PROBLEM_CLASSIFICATION, INVOICE_PROBLEM_RESOLUTION
 from xml_processor import parse_invoice_xml
-from lookup_tools import TOOLS, check_data_loaded
+from lookup_tools import TOOLS, check_data_loaded, names_in_invoice
 from run_log import RunLog
 
 from utils import save_graph_png
@@ -448,6 +448,7 @@ def run_system():
     # else:
     #     del invoice["source_file"]
 
+    invoice["names_in_text"] = names_in_invoice(invoice)
     invoice_json = json.dumps(invoice, indent=2, ensure_ascii=False)
 
     # print(invoice_json)
@@ -503,6 +504,7 @@ def run_all_invoices():
         else:
             del invoice["source_file"]
 
+        invoice["names_in_text"] = names_in_invoice(invoice)
         invoice_json = json.dumps(invoice, indent=2, ensure_ascii=False)
 
         run_log.start(xml_file.name)

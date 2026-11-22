@@ -211,7 +211,7 @@ import lookup_data
 import main as agent_main
 import list_agent
 from erp_list import COLUMN_KEYS, to_csv, to_json
-from lookup_tools import lookup_io, lookup_koststed, lookup_person
+from lookup_tools import lookup_io, lookup_koststed, lookup_person, names_in_invoice
 from mistral_ocr import build_client, ocr_image
 from ocr_parser import parse_ocr_response
 from xml_processor import parse_invoice_xml
@@ -327,6 +327,7 @@ LOOKUP_OUTCOMES = {
     "exact": "eksakt treff",
     "partial": "delvis treff",
     "partial_relaxed": "delvis treff, ett ord matchet ikke",
+    "fuzzy": "nær treff, én bokstav avviker",
     "none": "ingen treff",
     "too_many": "for mange treff",
 }
@@ -1122,6 +1123,7 @@ def _run_invoice(xml_bytes: bytes, filename: str, run_id: int) -> None:
         _set_stage("extract", "done", extract_verdict)
         _set_stage("identify", "active")
 
+        invoice["names_in_text"] = names_in_invoice(invoice)
         invoice_json = json.dumps(invoice, indent=2, ensure_ascii=False)
 
         agent_main.run_log.start(filename)

@@ -13,7 +13,7 @@ import re
 import time
 from pathlib import Path
 
-from normalize import normalize_name
+from normalize import normalize_name, normalize_words
 
 
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "data" / "koststed_tables"
@@ -28,6 +28,8 @@ HEADER_C = ["Koststedsnr.", "Koststedsnavn"]
 
 # More candidates than this is not a suggestion, the caseworker gets "too_many" instead.
 MAX_CANDIDATES = 10
+# shorter query words are never matched with a letter of tolerance: too many neighbours
+FUZZY_MIN_WORD_LENGTH = 4
 
 IO_PATTERN = re.compile(r"6\d{8}")
 KOSTSTED_PATTERN = re.compile(r"\d{8}")
@@ -424,6 +426,126 @@ def lookup_io(io: str) -> dict:
         "koststed": entry["koststed"], "koststed_name": entry["koststed_name"]}
 
 
+def _one_edit_apart(first: str, second: str) -> bool:
+    """
+    Tells whether two words differ by exactly one letter: inserted, dropped, replaced or swapped.
+
+    Args:
+        first (str): A normalized word.
+        second (str): Another normalized word.
+
+    Returns:
+        bool: True for exactly one edit, False for equal words and for two or more edits.
+
+    Example:
+        _one_edit_apart("morsund", "moursund") -> True
+    """
+
+    if first == second:
+        return False
+    if abs(len(first) - len(second)) > 1:
+        return False
+
+    index_first = 0
+    index_second = 0
+    edits = 0
+    while index_first < len(first) and index_second < len(second):
+        if first[index_first] == second[index_second]:
+            index_first = index_first + 1
+            index_second = index_second + 1
+            continue
+        edits = edits + 1
+        if edits > 1:
+            return False
+        if len(first) == len(second):
+            swapped = (
+                index_first + 1 < len(first)
+                and first[index_first] == second[index_second + 1]
+                and first[index_first + 1] == second[index_second]
+            )
+            if swapped:
+                index_first = index_first + 2
+                index_second = index_second + 2
+            else:
+                index_first = index_first + 1
+                index_second = index_second + 1
+        elif len(first) > len(second):
+            index_first = index_first + 1
+        else:
+            index_second = index_second + 1
+
+    # a letter left over at the end of the longer word is the one edit
+    edits = edits + (len(first) - index_first) + (len(second) - index_second)
+    return edits == 1
+
+
+def _word_variants(tables: LookupTables, word: str) -> list:
+    """
+    The name words in the index that differ from a query word by one letter.
+
+    Args:
+        tables (LookupTables): The loaded tables.
+        word (str): A normalized query word.
+
+    Returns:
+        list[str]: The neighbouring index words, empty for a word shorter than FUZZY_MIN_WORD_LENGTH.
+    """
+
+    if len(word) < FUZZY_MIN_WORD_LENGTH:
+        return []
+    variants = []
+    for index_word in tables.persons_by_word:
+        if _one_edit_apart(word, index_word):
+            variants.append(index_word)
+    return variants
+
+
+def _fuzzy_person_search(tables: LookupTables, name: str, key: str, tokens: list) -> dict:
+    """
+    Search method where one query word may be misspelled by one letter.
+
+    Each query word in turn is replaced by its one-letter neighbours in the index while the other
+    words must match exactly, so a typo in one word still finds the name. The result is never
+    treated as proof: the caller presents it as a suggestion with both spellings.
+
+    Args:
+        tables (LookupTables): The loaded tables.
+        name (str): The original query name.
+        key (str): The normalized key of the query.
+        tokens (list[str]): The words of the normalized key, two at least.
+
+    Returns:
+        dict: match_type is "fuzzy", "too_many" or "none"; "corrections" maps each misspelled
+            query word to the index words it was read as.
+    """
+
+    fuzzy_positions = []
+    corrections = {}
+    for replace_index in range(len(tokens)):
+        for variant in _word_variants(tables, tokens[replace_index]):
+            variant_tokens = tokens[:replace_index] + [variant] + tokens[replace_index + 1:]
+            for position in _persons_with_all_words(tables, variant_tokens):
+                if position not in fuzzy_positions:
+                    fuzzy_positions.append(position)
+                read_as = corrections.setdefault(tokens[replace_index], [])
+                if variant not in read_as:
+                    read_as.append(variant)
+
+    if len(fuzzy_positions) == 0:
+        return {"query": name, "normalized_key": key, "match_type": "none", "persons": []}
+
+    if len(fuzzy_positions) > MAX_CANDIDATES:
+        return {"query": name, "normalized_key": key, "match_type": "too_many", "persons": [],
+            "count": len(fuzzy_positions),
+            "note": f"more than {MAX_CANDIDATES} names match when one word is read with one letter changed"}
+
+    read_as_text = ", ".join(f"'{word}' read as {' or '.join(variants)}" for word, variants in corrections.items())
+    return {"query": name, "normalized_key": key, "match_type": "fuzzy",
+        "persons": _person_dicts(tables, sorted(fuzzy_positions)),
+        "corrections": corrections,
+        "note": f"one word differs by one letter: {read_as_text}. A suggestion to confirm, not a match"}
+
+
 def _relaxed_person_search(tables: LookupTables, name: str, key: str, tokens: list) -> dict:
     """
     Third search method where one query word may be wrong or extra.
@@ -474,17 +596,18 @@ def _relaxed_person_search(tables: LookupTables, name: str, key: str, tokens: li
 
 def lookup_person(name: str) -> dict:
     """
-    Looks up a name among the persons of report A and the koststed names of report C, with three
+    Looks up a name among the persons of report A and the koststed names of report C, with four
     search methods.
 
     Exact: the whole normalized name matches. Partial: every query word appears in the name, in
-    any order, two words at least. Relaxed: all but one query word appear, three words at least.
+    any order, two words at least. Fuzzy: the same with one word misspelled by one letter.
+    Relaxed: all but one query word appear, three words at least.
 
     Args:
         name (str): The person name as written on the invoice or the list.
 
     Returns:
-        dict: match_type is "exact", "partial", "partial_relaxed", "none" or "too_many".
+        dict: match_type is "exact", "partial", "fuzzy", "partial_relaxed", "none" or "too_many".
     """
 
     tables = get_tables()
@@ -506,6 +629,9 @@ def lookup_person(name: str) -> dict:
     partial_positions = _persons_with_all_words(tables, tokens)
 
     if len(partial_positions) == 0:
+        fuzzy_result = _fuzzy_person_search(tables, name, key, tokens)
+        if fuzzy_result["match_type"] != "none":
+            return fuzzy_result
         return _relaxed_person_search(tables, name, key, tokens)
 
     if len(partial_positions) > MAX_CANDIDATES:
@@ -515,6 +641,43 @@ def lookup_person(name: str) -> dict:
 
     return {"query": name, "normalized_key": key, "match_type": "partial", "persons": _person_dicts(tables, partial_positions),
         "note": "candidates that contain all the query words - not exact matches"}
+
+
+def find_names_in_text(text: str) -> list:
+    """
+    Finds the persons of report A whose name stands inside a free text.
+
+    Every pair of neighbouring words in the normalized text is searched the way the partial
+    lookup searches: a person whose name holds both words is a hit, so a middle name the text
+    leaves out does not matter. A pair that hits more than MAX_CANDIDATES persons is too common to
+    be a lead and is skipped. Koststed names are left out, since pairs of everyday words such as
+    "seksjon for" would hit them constantly. Who the person is to the text is not decided here.
+
+    Args:
+        text (str): A free text from an invoice, for example a line's item name.
+
+    Returns:
+        list[dict]: One dict per person found, in the order of the text, with name, koststed and
+            koststed_name. Empty when the text holds no known name.
+    """
+
+    tables = get_tables()
+    words = normalize_words(text)
+    found_positions = []
+    for index in range(len(words) - 1):
+        pair = [words[index], words[index + 1]]
+        if pair[0] == pair[1]:
+            continue
+        person_positions = []
+        for position in _persons_with_all_words(tables, pair):
+            if tables.persons[position]["kind"] == "person":
+                person_positions.append(position)
+        if len(person_positions) > MAX_CANDIDATES:
+            continue
+        for position in person_positions:
+            if position not in found_positions:
+                found_positions.append(position)
+    return _person_dicts(tables, found_positions)
 
 
 def lookup_koststed(code: str) -> dict:
@@ -599,6 +762,14 @@ if __name__ == "__main__":
     koststed_result = lookup_koststed(first_koststed)
     assert koststed_result["status"] == "found", koststed_result["status"]
     assert koststed_result["description"] == tables.koststeder[first_koststed]
+
+    # one letter of tolerance: inserted, dropped, replaced, swapped; never zero or two edits
+    assert _one_edit_apart("morsund", "moursund") and _one_edit_apart("moursund", "morsund")
+    assert _one_edit_apart("hansen", "hanson") and _one_edit_apart("hansen", "hansne")
+    assert _one_edit_apart("hansen", "hansens") and _one_edit_apart("hansens", "hansen")
+    assert not _one_edit_apart("hansen", "hansen") and not _one_edit_apart("hansen", "hensan")
+    assert not _one_edit_apart("hansen", "hansenes") and not _one_edit_apart("ab", "cd")
+    assert _word_variants(tables, "abc") == []
 
     # the edge cases the API handled
     assert lookup_person("...")["match_type"] == "none"
