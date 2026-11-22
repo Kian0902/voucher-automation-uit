@@ -313,7 +313,7 @@ LABEL_NAMES = {
 # Norwegian display names for the lookup tools
 TOOL_NAMES = {
     "lookup_io": "Slår opp ordrenummer",
-    "lookup_person": "Slår opp person",
+    "lookup_person": "Slår opp navn",
     "lookup_koststed": "Slår opp koststed",
 }
 
@@ -1421,9 +1421,13 @@ def settings_page() -> HTMLResponse:
 
 
 @app.get("/status")
-def status() -> dict:
+def status(page: str | None = None) -> dict:
     """
     Snapshot of the current run for the page to render.
+
+    Args:
+        page (str | None): The calling page's id, which marks the page as open until it sends
+            /page-closed. The smoke check and curl send none.
 
     Returns:
         dict: A copy of STATE plus data_error when the reports could not be loaded.
@@ -1441,6 +1445,8 @@ def status() -> dict:
     snapshot["model_server_label"] = model_client.MODEL_SERVERS[MODEL_SERVER]
     global LAST_PAGE_SEEN
     LAST_PAGE_SEEN = time.monotonic()
+    if page is not None:
+        OPEN_PAGES[page] = LAST_PAGE_SEEN
     return snapshot
 
 
@@ -1521,10 +1527,35 @@ def search(query: str):
 
 # Set by the Windows launcher: the app runs in the staff's browser, has no window of its own
 # and therefore needs its own way to quit. The launcher waits on QUIT_REQUESTED and ends the
-# program when LAST_PAGE_SEEN, the monotonic time of the last /status call, falls behind.
+# program when OPEN_PAGES has been empty for a few seconds after a page showed. Pages register
+# through /status and leave through /page-closed; silence alone means nothing, since a hidden or
+# sleeping tab stops asking /status for a long time and still comes back.
 BROWSER_MODE = False
 QUIT_REQUESTED = threading.Event()
+# monotonic time of the last /status call, None until the first page showed
 LAST_PAGE_SEEN = None
+# page id -> monotonic time of its last /status call
+OPEN_PAGES = {}
+# monotonic time of the last /page-closed call
+LAST_PAGE_CLOSED = None
+
+
+@app.post("/page-closed")
+def page_closed(page: str) -> dict:
+    """
+    Take a page out of the open set, sent by the browser when its tab is closed or left.
+
+    Args:
+        page (str): The page id the tab used in its /status calls.
+
+    Returns:
+        dict: Empty; the beacon reads no answer.
+    """
+
+    global LAST_PAGE_CLOSED
+    OPEN_PAGES.pop(page, None)
+    LAST_PAGE_CLOSED = time.monotonic()
+    return {}
 
 
 @app.post("/quit")

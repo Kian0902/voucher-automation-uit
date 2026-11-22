@@ -9,6 +9,8 @@ var PAGES = [
   { path: "/settings", title: "Innstillinger" },
 ];
 var POLL_INTERVAL_MS = 500;
+// one id per loaded page, so the server knows which tabs are open; see /page-closed
+var PAGE_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
 var FAILED_POLLS_BEFORE_BANNER = 4;
 var statusListeners = [];
 var failedPolls = 0;
@@ -345,7 +347,7 @@ async function pollStatus() {
   }
   var state;
   try {
-    var response = await fetch("/status");
+    var response = await fetch("/status?page=" + PAGE_ID);
     state = await response.json();
   } catch (error) {
     // only a failed request counts as lost contact, never an error in a page's own drawing
@@ -450,6 +452,12 @@ function setupSidebarResize() {
     }
   });
 }
+
+// pagehide fires when the tab is closed, reloaded or left, not when the browser only puts the tab
+// to sleep, so the launcher can tell a closed tab from a resting one
+window.addEventListener("pagehide", function () {
+  navigator.sendBeacon("/page-closed?page=" + PAGE_ID);
+});
 
 renderSidebar();
 setupSidebarResize();

@@ -34,7 +34,7 @@ SMOKE_VARIABLE = "FAKTURAASSISTENT_SMOKE"
 # set to 1 to start for real but without opening a browser, for the build's own test
 NO_BROWSER_VARIABLE = "FAKTURAASSISTENT_NO_BROWSER"
 START_TIMEOUT_SECONDS = 60
-# the pages ask /status twice a second; a longer silence means the last tab is closed
+# after the last page said goodbye, this long for a reload or the next page to show up
 PAGE_GONE_SECONDS = 5
 # the browser can be slow to come up; with no page at all after this long, the program ends
 FIRST_PAGE_TIMEOUT_SECONDS = 120
@@ -173,29 +173,27 @@ def wait_until_listening(port: int) -> None:
 
 def wait_for_quit_or_closed_tab() -> None:
     """
-    Block until "Avslutt appen" was pressed or no browser tab shows the app any more.
+    Block until "Avslutt appen" was pressed or the last browser tab on the app is closed.
 
-    The server notes when a page last asked /status. Once a page has shown, PAGE_GONE_SECONDS
-    of silence means the last tab is closed. A gap in this loop itself, from a laptop that was
-    asleep, is not silence from the page, so the clock restarts after it.
+    Every page sends its id with its /status calls and a beacon to /page-closed when its tab is
+    closed or left, so the server holds the set of open pages. Once a page has shown, an empty set
+    for PAGE_GONE_SECONDS means the last tab is closed; the gap covers a reload and moving between
+    pages. Silence alone never ends the program: a hidden or sleeping tab stops asking /status for
+    minutes or hours and still comes back. A browser that is killed sends no beacon, so the program
+    then runs on until "Avslutt appen" or the next start, which reuses it.
     """
 
     started = time.monotonic()
-    last_check = started
     while not server.QUIT_REQUESTED.wait(WATCH_INTERVAL_SECONDS):
         now = time.monotonic()
-        machine_slept = now - last_check > 2 * WATCH_INTERVAL_SECONDS
-        last_check = now
-        if machine_slept:
-            if server.LAST_PAGE_SEEN is not None:
-                server.LAST_PAGE_SEEN = now
-            continue
         if server.LAST_PAGE_SEEN is None:
             if now - started > FIRST_PAGE_TIMEOUT_SECONDS:
                 print(f"no page showed within {FIRST_PAGE_TIMEOUT_SECONDS} s, ending")
                 return
             continue
-        if now - server.LAST_PAGE_SEEN > PAGE_GONE_SECONDS:
+        if len(server.OPEN_PAGES) > 0 or server.LAST_PAGE_CLOSED is None:
+            continue
+        if now - server.LAST_PAGE_CLOSED > PAGE_GONE_SECONDS:
             print("the last browser tab is closed, ending")
             return
     # let the answer to /quit reach the page before the process ends

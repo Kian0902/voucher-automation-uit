@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 import openpyxl
 
@@ -742,6 +743,23 @@ async def upload(request: Request, report: str, filename: str = "fil"):
     file_bytes = await request.body()
     if len(file_bytes) == 0:
         return JSONResponse({"message": "Ingen fil mottatt"}, status_code=400)
+
+    # off the event loop: a large workbook takes seconds, and the pages ask /status meanwhile
+    return await run_in_threadpool(_install_and_answer, report, file_bytes, filename)
+
+
+def _install_and_answer(report: str, file_bytes: bytes, filename: str):
+    """
+    Installs an uploaded export and reloads the tables, the blocking part of upload().
+
+    Args:
+        report (str): "a", "b" or "c".
+        file_bytes (bytes): The uploaded file.
+        filename (str): The original filename, for the message.
+
+    Returns:
+        dict with message and the row count, or an error answer.
+    """
 
     with WRITE_LOCK:
         try:

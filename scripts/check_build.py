@@ -8,8 +8,9 @@ folder PyInstaller made from app/Fakturaassistent-windows.spec:
 
 It puts three tiny made-up report files next to the program, starts it once in smoke mode and
 once for real without a browser, asks for every page, starts it a second time to see that the
-second start yields to the first, quits it through its own quit button's endpoint, and then
-removes everything the check left behind.
+second start yields to the first, closes its page and sees the program end, starts it once more
+and quits it through its own quit button's endpoint, and then removes everything the check left
+behind.
 """
 
 import csv
@@ -18,7 +19,6 @@ import os
 import shutil
 import subprocess
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -65,21 +65,17 @@ def get_json(path: str) -> dict:
         return json.loads(response.read())
 
 
-def keep_page_alive(stop: threading.Event) -> None:
+def post(path: str) -> None:
     """
-    Ask /status twice a second, as an open page does, so the launcher's watchdog keeps the
-    program running while this script works.
+    Send an empty POST, as the pages' beacons and buttons do.
 
     Args:
-        stop (threading.Event): Set to end the polling.
+        path (str): The path with its query string, for example "/quit".
     """
 
-    while not stop.is_set():
-        try:
-            get_json("/status")
-        except (OSError, ValueError):
-            pass
-        stop.wait(0.5)
+    request = urllib.request.Request(URL + path, data=b"", method="POST")
+    with urllib.request.urlopen(request, timeout=5) as response:
+        assert response.status == 200, path
 
 
 def wait_for_status() -> dict:
@@ -131,7 +127,6 @@ if __name__ == "__main__":
     write_report(reports_folder / REPORT_C.name, HEADER_C, [["10000001", "Enhet en"]])
 
     process = None
-    page_closed = threading.Event()
     try:
         # 1. smoke mode: the program starts, loads the reports, writes its status and exits
         smoke_environment = dict(os.environ)
@@ -148,7 +143,8 @@ if __name__ == "__main__":
         run_environment["FAKTURAASSISTENT_NO_BROWSER"] = "1"
         process = subprocess.Popen([str(executable)], env=run_environment)
         state = wait_for_status()
-        threading.Thread(target=keep_page_alive, args=(page_closed,), daemon=True).start()
+        # register as an open page, as every page does through its id
+        get_json("/status?page=check")
         assert state["status"] == "idle" and state["data_error"] is None, state
         assert state["can_quit"] is True, "browser mode offers the quit button"
         assert sorted(state["settings_missing"]) == ["API_KEY", "API_MODEL", "API_URL", "MISTRAL_API_KEY", "USER_NAME"]
@@ -168,10 +164,20 @@ if __name__ == "__main__":
         assert process.poll() is None, "the first instance keeps running"
         print("a second start yields to the running one")
 
-        # 4. quitting through the endpoint behind "Avslutt appen" ends the process
-        quit_request = urllib.request.Request(URL + "/quit", data=b"", method="POST")
-        with urllib.request.urlopen(quit_request, timeout=5) as response:
-            assert response.status == 200
+        # 4. silence keeps nothing waiting, closing the last page ends the process
+        time.sleep(8)
+        assert process.poll() is None, "a page that stays open keeps the program running"
+        post("/page-closed?page=check")
+        process.wait(timeout=30)
+        assert process.returncode == 0, f"the program ended with {process.returncode}"
+        process = None
+        print("the program ends when the last page is closed")
+
+        # 5. quitting through the endpoint behind "Avslutt appen" ends the process
+        process = subprocess.Popen([str(executable)], env=run_environment)
+        wait_for_status()
+        get_json("/status?page=check")
+        post("/quit")
         process.wait(timeout=30)
         assert process.returncode == 0, f"the program ended with {process.returncode}"
         process = None
@@ -180,8 +186,6 @@ if __name__ == "__main__":
         if process is not None:
             process.kill()
         show_log(program_folder)
-        # the program ends by itself a few seconds after the last page stops asking
-        page_closed.set()
         # leave the folder as the build made it
         for name in ["smoke.txt", "config.env", "Fakturaassistent.log"]:
             leftover = program_folder / name

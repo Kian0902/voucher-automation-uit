@@ -68,7 +68,7 @@ function renderSearch(data) {
 
   if (data.kind === "person") {
     var result = data.result;
-    var parts = ['<div class="search-kind">Personsøk</div>'];
+    var parts = ['<div class="search-kind">Navnesøk</div>'];
     if (result.match_type === "exact") {
       parts.push(renderPersons(result.persons));
     } else if (result.match_type === "partial") {
